@@ -52,8 +52,8 @@ if 'flagged_entries_by_category' not in st.session_state:
     st.session_state.flagged_entries_by_category = {}
 if 'pattern_recognition_results' not in st.session_state:  # New session state variable for pattern recognition
     st.session_state.pattern_recognition_results = None
-if 'seldomly_used_accounts' not in st.session_state:  # New session state variable for seldomly used accounts
-    st.session_state.seldomly_used_accounts = None
+if 'seldomly_used_accounts_threshold' not in st.session_state:  # New session state variable for seldomly used accounts threshold
+    st.session_state.seldomly_used_accounts_threshold = 5
 
 # Define required and optional fields
 required_fields = [
@@ -170,16 +170,15 @@ def detect_seldomly_used_accounts():
         account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
         account_frequency.columns = ["Account Number", "Transaction Count"]
 
-        # Define seldomly used accounts as those with fewer than 5 transactions
-        seldomly_used_threshold = 5
-        seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < seldomly_used_threshold]
+        # Define seldomly used accounts as those with fewer than the specified threshold
+        seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
 
         # Store results in session state
         st.session_state.seldomly_used_accounts = seldomly_used_accounts
 
         # Display results
         st.subheader("Seldomly Used Accounts")
-        st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {seldomly_used_threshold} transactions.")
+        st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {st.session_state.seldomly_used_accounts_threshold} transactions.")
         st.dataframe(seldomly_used_accounts)
 
         # Provide a conclusion
@@ -396,9 +395,17 @@ def perform_high_risk_test():
 
         # Check for seldomly used accounts
         if st.session_state.seldomly_used_accounts_var:
-            if st.session_state.seldomly_used_accounts is not None:
+            if st.session_state.processed_df is not None:
+                # Count the frequency of each account number
+                account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
+                account_frequency.columns = ["Account Number", "Transaction Count"]
+
+                # Define seldomly used accounts as those with fewer than the specified threshold
+                seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
+
+                # Flag entries for seldomly used accounts
                 seldomly_used_entries = st.session_state.processed_df[
-                    st.session_state.processed_df["Account Number"].isin(st.session_state.seldomly_used_accounts["Account Number"])
+                    st.session_state.processed_df["Account Number"].isin(seldomly_used_accounts["Account Number"])
                 ]
                 st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
                 st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries
@@ -533,13 +540,8 @@ def main_app():
     if st.button("Run Pattern Recognition"):
         perform_pattern_recognition()
 
-    # Seldomly Used Accounts Detection
-    st.header("4. Seldomly Used Accounts Detection")
-    if st.button("Detect Seldomly Used Accounts"):
-        detect_seldomly_used_accounts()
-
     # High-Risk Criteria & Testing
-    st.header("5. High-Risk Criteria & Testing")
+    st.header("4. High-Risk Criteria & Testing")
     if not st.session_state.completeness_check_passed:
         st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
     else:
@@ -583,11 +585,17 @@ def main_app():
             ).strip().split(",")
             st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
 
+        if st.session_state.seldomly_used_accounts_var:
+            st.session_state.seldomly_used_accounts_threshold = st.number_input(
+                "Enter Threshold for Seldomly Used Accounts (minimum number of transactions):",
+                value=5, min_value=1
+            )
+
         if st.button("Run High-Risk Test"):
             perform_high_risk_test()
 
     # Export Reports
-    st.header("6. Export Reports")
+    st.header("5. Export Reports")
     if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
         # Export PDF Report
         if st.button("Export PDF Report"):
