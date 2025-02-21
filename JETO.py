@@ -3,6 +3,7 @@ import pandas as pd
 import logging
 import math
 from io import StringIO
+import matplotlib.pyplot as plt
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -178,6 +179,21 @@ if st.session_state.post_closing_var:
 
 if st.button("Run Test"):
     perform_high_risk_test()
+
+# Data Visualization
+if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
+    st.header("Data Visualization")
+    
+    # Plotting the high-risk entries
+    fig, ax = plt.subplots()
+    st.session_state.high_risk_entries["Debit Amount (Dr)"].plot(kind='bar', ax=ax, color='r', alpha=0.5, label='Debit Amount (Dr)')
+    st.session_state.high_risk_entries["Credit Amount (Cr)"].plot(kind='bar', ax=ax, color='b', alpha=0.5, label='Credit Amount (Cr)')
+    ax.set_xlabel('Entry Index')
+    ax.set_ylabel('Amount')
+    ax.set_title('High-Risk Entries: Debit vs Credit Amounts')
+    ax.legend()
+    
+    st.pyplot(fig)
 
 # Export Reports
 st.header("3. Export Reports")
