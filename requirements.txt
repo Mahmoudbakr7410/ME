@@ -8,4 +8,4 @@ numpy
 plotly
 pandas
 fpdf
-
+xlswriter
