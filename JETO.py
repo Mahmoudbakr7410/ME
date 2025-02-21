@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -52,8 +53,6 @@ if 'flagged_entries_by_category' not in st.session_state:
     st.session_state.flagged_entries_by_category = {}
 if 'pattern_recognition_results' not in st.session_state:  # New session state variable for pattern recognition
     st.session_state.pattern_recognition_results = None
-if 'seldomly_used_accounts' not in st.session_state:  # New session state variable for seldomly used accounts
-    st.session_state.seldomly_used_accounts = None
 
 # Define required and optional fields
 required_fields = [
@@ -158,39 +157,6 @@ def perform_completeness_check():
     except Exception as e:
         st.error(f"Error during completeness check: {e}")
         logging.error(f"Error during completeness check: {e}")
-
-# Function to detect seldomly used accounts
-def detect_seldomly_used_accounts():
-    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to analyze. Please import a CSV file first.")
-        return
-
-    try:
-        # Count the frequency of each account number
-        account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
-        account_frequency.columns = ["Account Number", "Transaction Count"]
-
-        # Define seldomly used accounts as those with fewer than 5 transactions
-        seldomly_used_threshold = 5
-        seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < seldomly_used_threshold]
-
-        # Store results in session state
-        st.session_state.seldomly_used_accounts = seldomly_used_accounts
-
-        # Display results
-        st.subheader("Seldomly Used Accounts")
-        st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {seldomly_used_threshold} transactions.")
-        st.dataframe(seldomly_used_accounts)
-
-        # Provide a conclusion
-        st.subheader("Conclusion")
-        if len(seldomly_used_accounts) > 0:
-            st.warning(f"{len(seldomly_used_accounts)} accounts are seldomly used. Review these accounts for potential risks.")
-        else:
-            st.success("No seldomly used accounts found.")
-    except Exception as e:
-        st.error(f"Error during seldomly used accounts detection: {e}")
-        logging.error(f"Error during seldomly used accounts detection: {e}")
 
 # Function to perform data mining and pattern recognition
 def perform_pattern_recognition():
@@ -394,15 +360,6 @@ def perform_high_risk_test():
                 st.error("Column 'Entry Description' not found in the data.")
                 return
 
-        # Check for seldomly used accounts
-        if st.session_state.seldomly_used_accounts_var:
-            if st.session_state.seldomly_used_accounts is not None:
-                seldomly_used_entries = st.session_state.processed_df[
-                    st.session_state.processed_df["Account Number"].isin(st.session_state.seldomly_used_accounts["Account Number"])
-                ]
-                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
-                st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries
-
         if not st.session_state.high_risk_entries.empty:
             st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
         else:
@@ -533,13 +490,8 @@ def main_app():
     if st.button("Run Pattern Recognition"):
         perform_pattern_recognition()
 
-    # Seldomly Used Accounts Detection
-    st.header("4. Seldomly Used Accounts Detection")
-    if st.button("Detect Seldomly Used Accounts"):
-        detect_seldomly_used_accounts()
-
     # High-Risk Criteria & Testing
-    st.header("5. High-Risk Criteria & Testing")
+    st.header("4. High-Risk Criteria & Testing")
     if not st.session_state.completeness_check_passed:
         st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
     else:
@@ -550,7 +502,6 @@ def main_app():
         st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
         st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
         st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
-        st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
 
         if st.session_state.public_holidays_var:
             public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
@@ -587,7 +538,7 @@ def main_app():
             perform_high_risk_test()
 
     # Export Reports
-    st.header("6. Export Reports")
+    st.header("5. Export Reports")
     if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
         # Export PDF Report
         if st.button("Export PDF Report"):
