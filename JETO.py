@@ -226,6 +226,28 @@ def create_monthly_trial_balance():
         st.error(f"Error during monthly trial balance creation: {e}")
         logging.error(f"Error during monthly trial balance creation: {e}")
 
+# Function to export monthly trial balance to Excel
+def export_monthly_trial_balance():
+    if st.session_state.monthly_trial_balance is None or st.session_state.monthly_trial_balance.empty:
+        st.warning("No monthly trial balance data to export. Please create the monthly trial balance first.")
+        return
+
+    try:
+        # Create an Excel writer object
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            # Split the monthly trial balance into separate dataframes for each month
+            for month in st.session_state.monthly_trial_balance["Month"].unique():
+                month_data = st.session_state.monthly_trial_balance[st.session_state.monthly_trial_balance["Month"] == month]
+                month_data.to_excel(writer, sheet_name=str(month), index=False)
+
+        # Prepare the Excel file for download
+        output.seek(0)
+        return output
+    except Exception as e:
+        st.error(f"Error during export: {e}")
+        logging.error(f"Error during export: {e}")
+
 # Function to perform data mining and pattern recognition
 def perform_pattern_recognition():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
@@ -579,6 +601,17 @@ def main_app():
     st.header("4. Monthly Trial Balance")
     if st.button("Create Monthly Trial Balance"):
         create_monthly_trial_balance()
+
+    # Export Monthly Trial Balance
+    if st.session_state.monthly_trial_balance is not None:
+        if st.button("Export Monthly Trial Balance"):
+            excel_output = export_monthly_trial_balance()
+            st.download_button(
+                label="Download Monthly Trial Balance",
+                data=excel_output,
+                file_name="monthly_trial_balance.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
 
     # High-Risk Criteria & Testing
     st.header("5. High-Risk Criteria & Testing")
