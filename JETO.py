@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import datetime
 from fpdf import FPDF  # For PDF export
+from sklearn.ensemble import IsolationForest  # For anomaly detection
+from sklearn.cluster import KMeans  # For clustering
+from sklearn.preprocessing import StandardScaler  # For scaling data
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -46,8 +49,12 @@ if 'audited_client_name' not in st.session_state:
     st.session_state.audited_client_name = ""
 if 'year_audited' not in st.session_state:
     st.session_state.year_audited = datetime.now().year
-if 'flagged_entries_by_category' not in st.session_state:  # New session state variable
+if 'flagged_entries_by_category' not in st.session_state:
     st.session_state.flagged_entries_by_category = {}
+if 'anomalies' not in st.session_state:  # New session state variable for AI anomalies
+    st.session_state.anomalies = None
+if 'clusters' not in st.session_state:  # New session state variable for clustering
+    st.session_state.clusters = None
 
 # Define required and optional fields
 required_fields = [
@@ -152,6 +159,71 @@ def perform_completeness_check():
     except Exception as e:
         st.error(f"Error during completeness check: {e}")
         logging.error(f"Error during completeness check: {e}")
+
+# Function to perform anomaly detection using Isolation Forest
+def detect_anomalies():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to analyze. Please import a CSV file first.")
+        return
+
+    try:
+        # Select numeric columns for anomaly detection
+        numeric_cols = st.session_state.processed_df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) == 0:
+            st.warning("No numeric columns found for anomaly detection.")
+            return
+
+        # Scale the data
+        scaler = StandardScaler()
+        scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols])
+
+        # Train Isolation Forest model
+        model = IsolationForest(contamination=0.05)  # 5% of data is considered anomalous
+        st.session_state.anomalies = model.fit_predict(scaled_data)
+
+        # Add anomaly results to the dataframe
+        st.session_state.processed_df["Anomaly"] = st.session_state.anomalies
+        st.session_state.processed_df["Anomaly"] = st.session_state.processed_df["Anomaly"].map({1: "Normal", -1: "Anomaly"})
+
+        # Display anomalies
+        st.subheader("Anomaly Detection Results")
+        st.dataframe(st.session_state.processed_df[st.session_state.processed_df["Anomaly"] == "Anomaly"])
+
+    except Exception as e:
+        st.error(f"Error during anomaly detection: {e}")
+        logging.error(f"Error during anomaly detection: {e}")
+
+# Function to perform clustering using KMeans
+def perform_clustering():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to analyze. Please import a CSV file first.")
+        return
+
+    try:
+        # Select numeric columns for clustering
+        numeric_cols = st.session_state.processed_df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) == 0:
+            st.warning("No numeric columns found for clustering.")
+            return
+
+        # Scale the data
+        scaler = StandardScaler()
+        scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols])
+
+        # Perform KMeans clustering
+        kmeans = KMeans(n_clusters=3)  # You can adjust the number of clusters
+        st.session_state.clusters = kmeans.fit_predict(scaled_data)
+
+        # Add cluster results to the dataframe
+        st.session_state.processed_df["Cluster"] = st.session_state.clusters
+
+        # Display clusters
+        st.subheader("Clustering Results")
+        st.dataframe(st.session_state.processed_df)
+
+    except Exception as e:
+        st.error(f"Error during clustering: {e}")
+        logging.error(f"Error during clustering: {e}")
 
 # Function to export PDF report
 def export_pdf_report():
@@ -432,8 +504,16 @@ def main_app():
     if st.button("Run Completeness Check"):
         perform_completeness_check()
 
+    # AI-Driven Analytics
+    st.header("3. AI-Driven Analytics")
+    if st.button("Detect Anomalies"):
+        detect_anomalies()
+
+    if st.button("Perform Clustering"):
+        perform_clustering()
+
     # High-Risk Criteria & Testing
-    st.header("3. High-Risk Criteria & Testing")
+    st.header("4. High-Risk Criteria & Testing")
     if not st.session_state.completeness_check_passed:
         st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
     else:
@@ -480,7 +560,7 @@ def main_app():
             perform_high_risk_test()
 
     # Export Reports
-    st.header("4. Export Reports")
+    st.header("5. Export Reports")
     if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
         # Export PDF Report
         if st.button("Export PDF Report"):
