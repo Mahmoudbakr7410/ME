@@ -134,15 +134,59 @@ def perform_high_risk_test():
 
 # Authentication
 def login():
-    st.sidebar.header("Login")
-    username = st.sidebar.text_input("Username")
-    password = st.sidebar.text_input("Password", type="password")
-    if st.sidebar.button("Login"):
+    # Custom CSS for styling
+    st.markdown(
+        """
+        <style>
+        .login-box {
+            background-color: #f0f2f6;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            margin: auto;
+        }
+        .login-box h2 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .login-box input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .login-box button {
+            width: 100%;
+            padding: 10px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .login-box button:hover {
+            background-color: #2980b9;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Login box
+    st.markdown("<div class='login-box'>", unsafe_allow_html=True)
+    st.image("https://i.imgur.com/oHp5Psm.png", use_column_width=True)  # Your logo
+    st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
         if username == "m.elansary@maham.com" and password == "123456789":
             st.session_state.logged_in = True
-            st.sidebar.success("Logged in successfully!")
+            st.success("Logged in successfully!")
         else:
-            st.sidebar.error("Invalid username or password")
+            st.error("Invalid username or password")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # Streamlit UI
 def main_app():
