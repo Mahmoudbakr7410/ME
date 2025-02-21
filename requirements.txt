@@ -4,3 +4,6 @@ streamlit
 requests
 matplotlib
 seaborn
+numpy
+plotly
+pandas
