@@ -35,10 +35,12 @@ if 'auth_threshold' not in st.session_state:
     st.session_state.auth_threshold = 10000
 if 'suspicious_keywords' not in st.session_state:
     st.session_state.suspicious_keywords = []
-if 'trial_balance' not in st.session_state:  # New session state variable for trial balance
+if 'trial_balance' not in st.session_state:
     st.session_state.trial_balance = None
-if 'completeness_check_results' not in st.session_state:  # New session state variable for completeness check results
+if 'completeness_check_results' not in st.session_state:
     st.session_state.completeness_check_results = None
+if 'completeness_check_passed' not in st.session_state:  # New session state variable
+    st.session_state.completeness_check_passed = False
 
 # Define required and optional fields
 required_fields = [
@@ -121,8 +123,16 @@ def perform_completeness_check():
         # Store results in session state
         st.session_state.completeness_check_results = merged_df
 
+        # Check if discrepancies are within the allowed tolerance (5)
+        max_discrepancy = merged_df["Discrepancy"].abs().max()
+        if max_discrepancy <= 5:
+            st.session_state.completeness_check_passed = True
+            st.success("Completeness check passed! Maximum discrepancy is within the allowed tolerance of 5.")
+        else:
+            st.session_state.completeness_check_passed = False
+            st.warning(f"Completeness check failed! Maximum discrepancy ({max_discrepancy}) exceeds the allowed tolerance of 5.")
+
         # Display results
-        st.success("Completeness check completed!")
         st.dataframe(merged_df)
 
         # Flag accounts with discrepancies
@@ -138,6 +148,10 @@ def perform_completeness_check():
 
 # Function to perform high-risk testing
 def perform_high_risk_test():
+    if not st.session_state.completeness_check_passed:
+        st.warning("Completeness check has not passed. Please ensure the completeness check is successful before running high-risk tests.")
+        return
+
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
         st.warning("No data to test. Please import a CSV file first.")
         return
@@ -354,47 +368,50 @@ def main_app():
 
     # High-Risk Criteria & Testing
     st.header("3. High-Risk Criteria & Testing")
-    st.session_state.public_holidays_var = st.checkbox("Public Holidays")
-    st.session_state.rounded_var = st.checkbox("Rounded Numbers")
-    st.session_state.unusual_users_var = st.checkbox("Unusual Users")
-    st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
-    st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
-    st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
-    st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
+    if not st.session_state.completeness_check_passed:
+        st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
+    else:
+        st.session_state.public_holidays_var = st.checkbox("Public Holidays")
+        st.session_state.rounded_var = st.checkbox("Rounded Numbers")
+        st.session_state.unusual_users_var = st.checkbox("Unusual Users")
+        st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
+        st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
+        st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
+        st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
 
-    if st.session_state.public_holidays_var:
-        public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
-        st.session_state.public_holidays = []
-        for date in public_holidays_input:
-            if date.strip():  # Skip empty lines
-                try:
-                    parsed_date = pd.to_datetime(date.strip(), format="%Y-%m-%d")
-                    st.session_state.public_holidays.append(parsed_date)
-                except ValueError:
-                    st.error(f"Invalid date format: {date.strip()}. Please use the format YYYY-MM-DD.")
+        if st.session_state.public_holidays_var:
+            public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
+            st.session_state.public_holidays = []
+            for date in public_holidays_input:
+                if date.strip():  # Skip empty lines
+                    try:
+                        parsed_date = pd.to_datetime(date.strip(), format="%Y-%m-%d")
+                        st.session_state.public_holidays.append(parsed_date)
+                    except ValueError:
+                        st.error(f"Invalid date format: {date.strip()}. Please use the format YYYY-MM-DD.")
 
-    if st.session_state.rounded_var:
-        st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
+        if st.session_state.rounded_var:
+            st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
 
-    if st.session_state.unusual_users_var:
-        st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
-        st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
+        if st.session_state.unusual_users_var:
+            st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
+            st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
 
-    if st.session_state.post_closing_var:
-        st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
+        if st.session_state.post_closing_var:
+            st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
 
-    if st.session_state.auth_threshold_var:
-        st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
+        if st.session_state.auth_threshold_var:
+            st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
 
-    if st.session_state.keywords_var:
-        st.session_state.suspicious_keywords = st.text_area(
-            "Enter Suspicious Keywords (comma-separated):",
-            "miscellaneous, adjustment, correction, other, rounding"
-        ).strip().split(",")
-        st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
+        if st.session_state.keywords_var:
+            st.session_state.suspicious_keywords = st.text_area(
+                "Enter Suspicious Keywords (comma-separated):",
+                "miscellaneous, adjustment, correction, other, rounding"
+            ).strip().split(",")
+            st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
 
-    if st.button("Run High-Risk Test"):
-        perform_high_risk_test()
+        if st.button("Run High-Risk Test"):
+            perform_high_risk_test()
 
     # Data Visualization
     if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
