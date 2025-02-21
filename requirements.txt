@@ -2,3 +2,5 @@ fastapi
 uvicorn
 streamlit
 requests
+matplotlib
+seaborn
