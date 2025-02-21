@@ -145,12 +145,9 @@ def login():
             st.sidebar.error("Invalid username or password")
 
 # Streamlit UI
-st.title("MAHx-JET - Maham for Professional Services")
+def main_app():
+    st.title("MAHx-JET - Maham for Professional Services")
 
-# Check if user is logged in
-if not st.session_state.logged_in:
-    login()
-else:
     # Data Import & Processing
     st.header("1. Data Import & Processing")
     uploaded_file = st.file_uploader("Import CSV", type=["csv"])
@@ -254,3 +251,9 @@ else:
     if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
         st.header("Preview Data")
         st.dataframe(st.session_state.processed_df.head(10))
+
+# Check if user is logged in
+if not st.session_state.logged_in:
+    login()
+else:
+    main_app()
