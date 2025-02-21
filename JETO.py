@@ -33,17 +33,21 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'auth_threshold' not in st.session_state:
     st.session_state.auth_threshold = 10000
-if 'suspicious_keywords' not in st.session_state:  # New session state variable for keywords
+if 'suspicious_keywords' not in st.session_state:
     st.session_state.suspicious_keywords = []
+if 'trial_balance' not in st.session_state:  # New session state variable for trial balance
+    st.session_state.trial_balance = None
+if 'completeness_check_results' not in st.session_state:  # New session state variable for completeness check results
+    st.session_state.completeness_check_results = None
 
 # Define required and optional fields
 required_fields = [
-    "Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)"
+    "Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)", "Account Number"
 ]
 
 optional_fields = [
     "Journal Entry ID", "Posting Date", "Entry Description", "Document Number",
-    "Period/Month", "Year", "Entry Type", "Reversal Indicator", "Account ID", "Account Name",
+    "Period/Month", "Year", "Entry Type", "Reversal Indicator", "Account Name",
     "Account Type", "Cost Center", "Subledger Type", "Subledger ID", "Currency", "Local Currency Amount",
     "Exchange Rate", "Net Amount", "Created By", "Approved By", "Posting User", "Approval Date",
     "Journal Source", "Manual Entry Flag", "High-Risk Account Flag", "Suspense Account Flag",
@@ -75,6 +79,62 @@ def is_99999(value):
         return abs(value - round(value, 0)) >= 0.999 and abs(value - round(value, 0)) < 1.0
     except (ValueError, TypeError):
         return False
+
+# Function to perform completeness check
+def perform_completeness_check():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No GL data to test. Please import a CSV file first.")
+        return
+    if st.session_state.trial_balance is None or st.session_state.trial_balance.empty:
+        st.warning("No trial balance data to test. Please import a trial balance CSV file first.")
+        return
+
+    try:
+        # Group GL data by account number and calculate total debits and credits
+        gl_summary = st.session_state.processed_df.groupby("Account Number").agg(
+            Total_Debits=("Debit Amount (Dr)", "sum"),
+            Total_Credits=("Credit Amount (Cr)", "sum")
+        ).reset_index()
+
+        # Merge GL summary with trial balance
+        merged_df = pd.merge(
+            st.session_state.trial_balance,
+            gl_summary,
+            on="Account Number",
+            how="left"
+        )
+
+        # Fill NaN values with 0 (in case some accounts have no transactions)
+        merged_df["Total_Debits"] = merged_df["Total_Debits"].fillna(0)
+        merged_df["Total_Credits"] = merged_df["Total_Credits"].fillna(0)
+
+        # Calculate expected ending balance
+        merged_df["Expected_Ending_Balance"] = (
+            merged_df["Opening Balance"] + merged_df["Total_Debits"] - merged_df["Total_Credits"]
+        )
+
+        # Compare expected vs actual ending balance
+        merged_df["Discrepancy"] = (
+            merged_df["Expected_Ending_Balance"] - merged_df["Ending Balance"]
+        )
+
+        # Store results in session state
+        st.session_state.completeness_check_results = merged_df
+
+        # Display results
+        st.success("Completeness check completed!")
+        st.dataframe(merged_df)
+
+        # Flag accounts with discrepancies
+        discrepancies = merged_df[abs(merged_df["Discrepancy"]) > 0.01]  # Tolerance of 0.01 for rounding errors
+        if not discrepancies.empty:
+            st.warning(f"Found {len(discrepancies)} accounts with discrepancies.")
+            st.dataframe(discrepancies)
+        else:
+            st.success("No discrepancies found. All accounts are complete.")
+    except Exception as e:
+        st.error(f"Error during completeness check: {e}")
+        logging.error(f"Error during completeness check: {e}")
 
 # Function to perform high-risk testing
 def perform_high_risk_test():
@@ -252,14 +312,25 @@ def main_app():
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
-    uploaded_file = st.file_uploader("Import CSV", type=["csv"])
+    uploaded_file = st.file_uploader("Import GL Dump CSV", type=["csv"])
     if uploaded_file is not None:
         try:
             st.session_state.df = pd.read_csv(uploaded_file)
-            st.success("CSV file imported successfully!")
+            st.success("GL Dump CSV file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import file: {e}")
             logging.error(f"Failed to import file: {e}")
+
+    # Import Trial Balance
+    st.subheader("Import Trial Balance")
+    tb_uploaded_file = st.file_uploader("Import Trial Balance CSV", type=["csv"])
+    if tb_uploaded_file is not None:
+        try:
+            st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
+            st.success("Trial Balance CSV file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import trial balance file: {e}")
+            logging.error(f"Failed to import trial balance file: {e}")
 
     if st.session_state.df is not None:
         st.subheader("Map Columns")
@@ -276,15 +347,20 @@ def main_app():
                 st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
                 st.success("Columns mapped successfully!")
 
+    # Completeness Check
+    st.header("2. Completeness Check")
+    if st.button("Run Completeness Check"):
+        perform_completeness_check()
+
     # High-Risk Criteria & Testing
-    st.header("2. High-Risk Criteria & Testing")
+    st.header("3. High-Risk Criteria & Testing")
     st.session_state.public_holidays_var = st.checkbox("Public Holidays")
     st.session_state.rounded_var = st.checkbox("Rounded Numbers")
     st.session_state.unusual_users_var = st.checkbox("Unusual Users")
     st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
     st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
     st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
-    st.session_state.keywords_var = st.checkbox("Suspicious Keywords")  # New checkbox for keywords
+    st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
 
     if st.session_state.public_holidays_var:
         public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
@@ -310,14 +386,14 @@ def main_app():
     if st.session_state.auth_threshold_var:
         st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
 
-    if st.session_state.keywords_var:  # New input for suspicious keywords
+    if st.session_state.keywords_var:
         st.session_state.suspicious_keywords = st.text_area(
             "Enter Suspicious Keywords (comma-separated):",
             "miscellaneous, adjustment, correction, other, rounding"
         ).strip().split(",")
         st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
 
-    if st.button("Run Test"):
+    if st.button("Run High-Risk Test"):
         perform_high_risk_test()
 
     # Data Visualization
@@ -337,7 +413,7 @@ def main_app():
         st.plotly_chart(fig2)
 
     # Export Reports
-    st.header("3. Export Reports")
+    st.header("4. Export Reports")
     if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
         if st.button("Export High-Risk Entries"):
             csv = st.session_state.high_risk_entries.to_csv(index=False)
@@ -360,6 +436,7 @@ def main_app():
     - Date
     - Debit Amount (Dr)
     - Credit Amount (Cr)
+    - Account Number
 
     **Steps:**
     1. Import a CSV file containing the required fields.
