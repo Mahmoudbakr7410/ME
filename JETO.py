@@ -233,10 +233,11 @@ def export_monthly_trial_balance():
         # Create an Excel writer object
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            # Split the monthly trial balance into separate dataframes for each period
-            for period in st.session_state.monthly_trial_balance["Period"].unique():
-                period_data = st.session_state.monthly_trial_balance[st.session_state.monthly_trial_balance["Period"] == period]
-                period_data.to_excel(writer, sheet_name=str(period), index=False)
+            # Split the monthly trial balance into separate dataframes for each account
+            for account in st.session_state.monthly_trial_balance["Account Number"].unique():
+                account_data = st.session_state.monthly_trial_balance[st.session_state.monthly_trial_balance["Account Number"] == account]
+                account_data = account_data[["Period", "Opening Balance", "Total_Debits", "Total_Credits", "Ending Balance"]]
+                account_data.to_excel(writer, sheet_name=str(account), index=False)
 
         # Prepare the Excel file for download
         output.seek(0)
