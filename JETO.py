@@ -169,6 +169,13 @@ def login():
         .login-box button:hover {
             background-color: #2980b9;
         }
+        .footer {
+            position: fixed;
+            left: 10px;
+            bottom: 10px;
+            font-size: 12px;
+            color: #666;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -187,6 +194,9 @@ def login():
         else:
             st.error("Invalid username or password")
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # Footer with developer credits
+    st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>", unsafe_allow_html=True)
 
 # Streamlit UI
 def main_app():
