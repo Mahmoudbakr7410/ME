@@ -54,6 +54,8 @@ if 'pattern_recognition_results' not in st.session_state:  # New session state v
     st.session_state.pattern_recognition_results = None
 if 'seldomly_used_accounts_threshold' not in st.session_state:  # New session state variable for seldomly used accounts threshold
     st.session_state.seldomly_used_accounts_threshold = 5
+if 'monthly_trial_balance' not in st.session_state:  # New session state variable for monthly trial balance
+    st.session_state.monthly_trial_balance = None
 
 # Define required and optional fields
 required_fields = [
@@ -190,6 +192,39 @@ def detect_seldomly_used_accounts():
     except Exception as e:
         st.error(f"Error during seldomly used accounts detection: {e}")
         logging.error(f"Error during seldomly used accounts detection: {e}")
+
+# Function to create monthly trial balance
+def create_monthly_trial_balance():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to analyze. Please import a CSV file first.")
+        return
+
+    try:
+        # Extract month and year from the Date column
+        st.session_state.processed_df["Month"] = st.session_state.processed_df["Date"].dt.to_period("M")
+
+        # Group by Account Number and Month, then calculate total debits and credits
+        monthly_trial_balance = st.session_state.processed_df.groupby(["Account Number", "Month"]).agg(
+            Total_Debits=("Debit Amount (Dr)", "sum"),
+            Total_Credits=("Credit Amount (Cr)", "sum")
+        ).reset_index()
+
+        # Calculate the net balance for each account per month
+        monthly_trial_balance["Net Balance"] = monthly_trial_balance["Total_Debits"] - monthly_trial_balance["Total_Credits"]
+
+        # Store results in session state
+        st.session_state.monthly_trial_balance = monthly_trial_balance
+
+        # Display results
+        st.subheader("Monthly Trial Balance")
+        st.dataframe(monthly_trial_balance)
+
+        # Provide a conclusion
+        st.subheader("Conclusion")
+        st.success("Monthly trial balance created successfully!")
+    except Exception as e:
+        st.error(f"Error during monthly trial balance creation: {e}")
+        logging.error(f"Error during monthly trial balance creation: {e}")
 
 # Function to perform data mining and pattern recognition
 def perform_pattern_recognition():
@@ -540,8 +575,13 @@ def main_app():
     if st.button("Run Pattern Recognition"):
         perform_pattern_recognition()
 
+    # Monthly Trial Balance
+    st.header("4. Monthly Trial Balance")
+    if st.button("Create Monthly Trial Balance"):
+        create_monthly_trial_balance()
+
     # High-Risk Criteria & Testing
-    st.header("4. High-Risk Criteria & Testing")
+    st.header("5. High-Risk Criteria & Testing")
     if not st.session_state.completeness_check_passed:
         st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
     else:
@@ -595,7 +635,7 @@ def main_app():
             perform_high_risk_test()
 
     # Export Reports
-    st.header("5. Export Reports")
+    st.header("6. Export Reports")
     if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
         # Export PDF Report
         if st.button("Export PDF Report"):
