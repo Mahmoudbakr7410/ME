@@ -54,8 +54,10 @@ if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
 if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
-if 'monthly_trial_balance' not in st.session_state:
-    st.session_state.monthly_trial_balance = None
+if 'periodic_trial_balance' not in st.session_state:
+    st.session_state.periodic_trial_balance = None
+if 'closing_frequency' not in st.session_state:
+    st.session_state.closing_frequency = "Monthly"  # Default to Monthly
 
 # Define required and optional fields
 required_fields = [
@@ -152,8 +154,8 @@ def perform_completeness_check():
         st.error(f"Error during completeness check: {e}")
         logging.error(f"Error during completeness check: {e}")
 
-# Function to create monthly trial balance
-def create_monthly_trial_balance():
+# Function to create periodic trial balance
+def create_periodic_trial_balance():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
         st.warning("No data to analyze. Please import a CSV file first.")
         return
@@ -163,20 +165,20 @@ def create_monthly_trial_balance():
 
     try:
         # Ask the user how often the company closes its books
-        closing_frequency = st.selectbox(
+        st.session_state.closing_frequency = st.selectbox(
             "How often does the company close its books?",
             options=["Monthly", "Quarterly", "Semi-Annually", "Annually"],
             index=0  # Default to Monthly
         )
 
         # Map the closing frequency to a pandas period
-        if closing_frequency == "Monthly":
+        if st.session_state.closing_frequency == "Monthly":
             period = "M"
-        elif closing_frequency == "Quarterly":
+        elif st.session_state.closing_frequency == "Quarterly":
             period = "Q"
-        elif closing_frequency == "Semi-Annually":
+        elif st.session_state.closing_frequency == "Semi-Annually":
             period = "6M"
-        elif closing_frequency == "Annually":
+        elif st.session_state.closing_frequency == "Annually":
             period = "Y"
 
         # Extract period from the Date column
@@ -189,7 +191,7 @@ def create_monthly_trial_balance():
         ).reset_index()
 
         # Merge with the original trial balance to get the opening balance for the first period
-        period_trial_balance = pd.merge(
+        periodic_trial_balance = pd.merge(
             period_summary,
             st.session_state.trial_balance[["Account Number", "Opening Balance"]],
             on="Account Number",
@@ -197,47 +199,47 @@ def create_monthly_trial_balance():
         )
 
         # Sort by Account Number and Period
-        period_trial_balance = period_trial_balance.sort_values(by=["Account Number", "Period"])
+        periodic_trial_balance = periodic_trial_balance.sort_values(by=["Account Number", "Period"])
 
         # Initialize opening and ending balances
-        period_trial_balance["Opening Balance"] = period_trial_balance.groupby("Account Number")["Opening Balance"].ffill()
-        period_trial_balance["Ending Balance"] = period_trial_balance["Opening Balance"] + period_trial_balance["Total_Debits"] - period_trial_balance["Total_Credits"]
+        periodic_trial_balance["Opening Balance"] = periodic_trial_balance.groupby("Account Number")["Opening Balance"].ffill()
+        periodic_trial_balance["Ending Balance"] = periodic_trial_balance["Opening Balance"] + periodic_trial_balance["Total_Debits"] - periodic_trial_balance["Total_Credits"]
 
         # Roll forward the ending balance to the next period's opening balance
-        period_trial_balance["Next Period Opening Balance"] = period_trial_balance.groupby("Account Number")["Ending Balance"].shift(-1)
+        periodic_trial_balance["Next Period Opening Balance"] = periodic_trial_balance.groupby("Account Number")["Ending Balance"].shift(-1)
 
         # Fill NaN for the last period's next opening balance
-        period_trial_balance["Next Period Opening Balance"] = period_trial_balance["Next Period Opening Balance"].fillna(period_trial_balance["Ending Balance"])
+        periodic_trial_balance["Next Period Opening Balance"] = periodic_trial_balance["Next Period Opening Balance"].fillna(periodic_trial_balance["Ending Balance"])
 
         # Store results in session state
-        st.session_state.monthly_trial_balance = period_trial_balance
+        st.session_state.periodic_trial_balance = periodic_trial_balance
 
         # Display results
-        st.subheader(f"{closing_frequency} Trial Balance")
-        st.dataframe(period_trial_balance)
+        st.subheader(f"{st.session_state.closing_frequency} Trial Balance")
+        st.dataframe(periodic_trial_balance)
 
         # Provide a conclusion
         st.subheader("Conclusion")
-        st.success(f"{closing_frequency} trial balance created successfully!")
+        st.success(f"{st.session_state.closing_frequency} trial balance created successfully!")
     except Exception as e:
-        st.error(f"Error during monthly trial balance creation: {e}")
-        logging.error(f"Error during monthly trial balance creation: {e}")
+        st.error(f"Error during periodic trial balance creation: {e}")
+        logging.error(f"Error during periodic trial balance creation: {e}")
 
-# Function to export monthly trial balance to Excel
-def export_monthly_trial_balance():
-    if st.session_state.monthly_trial_balance is None or st.session_state.monthly_trial_balance.empty:
-        st.warning("No monthly trial balance data to export. Please create the monthly trial balance first.")
+# Function to export periodic trial balance to Excel
+def export_periodic_trial_balance():
+    if st.session_state.periodic_trial_balance is None or st.session_state.periodic_trial_balance.empty:
+        st.warning("No periodic trial balance data to export. Please create the periodic trial balance first.")
         return
 
     try:
         # Create an Excel writer object
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            # Split the monthly trial balance into separate dataframes for each account
-            for account in st.session_state.monthly_trial_balance["Account Number"].unique():
-                account_data = st.session_state.monthly_trial_balance[st.session_state.monthly_trial_balance["Account Number"] == account]
-                account_data = account_data[["Period", "Opening Balance", "Total_Debits", "Total_Credits", "Ending Balance"]]
-                account_data.to_excel(writer, sheet_name=str(account), index=False)
+            # Split the periodic trial balance into separate dataframes for each period
+            for period in st.session_state.periodic_trial_balance["Period"].unique():
+                period_data = st.session_state.periodic_trial_balance[st.session_state.periodic_trial_balance["Period"] == period]
+                period_data = period_data[["Account Number", "Opening Balance", "Total_Debits", "Total_Credits", "Ending Balance"]]
+                period_data.to_excel(writer, sheet_name=str(period), index=False)
 
         # Prepare the Excel file for download
         output.seek(0)
@@ -501,19 +503,19 @@ def main_app():
     if st.button("Run Pattern Recognition"):
         perform_pattern_recognition()
 
-    # Monthly Trial Balance
-    st.header("4. Monthly Trial Balance")
-    if st.button("Create Monthly Trial Balance"):
-        create_monthly_trial_balance()
+    # Periodic Trial Balance
+    st.header("4. Periodic Trial Balance")
+    if st.button("Create Periodic Trial Balance"):
+        create_periodic_trial_balance()
 
-    # Export Monthly Trial Balance
-    if st.session_state.monthly_trial_balance is not None:
-        if st.button("Export Monthly Trial Balance"):
-            excel_output = export_monthly_trial_balance()
+    # Export Periodic Trial Balance
+    if st.session_state.periodic_trial_balance is not None:
+        if st.button("Export Periodic Trial Balance"):
+            excel_output = export_periodic_trial_balance()
             st.download_button(
-                label="Download Monthly Trial Balance",
+                label="Download Periodic Trial Balance",
                 data=excel_output,
-                file_name="monthly_trial_balance.xlsx",
+                file_name="periodic_trial_balance.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
