@@ -31,7 +31,7 @@ if 'closing_date' not in st.session_state:
     st.session_state.closing_date = None
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-if 'auth_threshold' not in st.session_state:  # New session state variable
+if 'auth_threshold' not in st.session_state:
     st.session_state.auth_threshold = 10000
 
 # Define required and optional fields
@@ -64,6 +64,15 @@ def convert_data_types(df):
         if field in df.columns:
             df[field] = pd.to_datetime(df[field], errors="coerce")
     return df
+
+# Function to check for 99999 pattern
+def is_99999(value):
+    try:
+        value = float(value)
+        # Check if the value ends with 99999 (e.g., 999.99, 9999.99, 99999.99)
+        return abs(value - round(value, 0) >= 0.999 and abs(value - round(value, 0)) < 1.0
+    except (ValueError, TypeError):
+        return False
 
 # Function to perform high-risk testing
 def perform_high_risk_test():
@@ -136,6 +145,14 @@ def perform_high_risk_test():
                 (st.session_state.processed_df["Credit Amount (Cr)"] < threshold)
             ]
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, below_threshold_entries])
+
+        # Check for 99999 pattern
+        if st.session_state.nine_pattern_var:
+            nine_pattern_entries = st.session_state.processed_df[
+                st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999) |
+                st.session_state.processed_df["Credit Amount (Cr)"].apply(is_99999)
+            ]
+            st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
 
         if not st.session_state.high_risk_entries.empty:
             st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
@@ -247,7 +264,8 @@ def main_app():
     st.session_state.rounded_var = st.checkbox("Rounded Numbers")
     st.session_state.unusual_users_var = st.checkbox("Unusual Users")
     st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
-    st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")  # New checkbox
+    st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
+    st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")  # New checkbox for 99999 pattern
 
     if st.session_state.public_holidays_var:
         public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
@@ -270,7 +288,7 @@ def main_app():
     if st.session_state.post_closing_var:
         st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
 
-    if st.session_state.auth_threshold_var:  # New input for authorization threshold
+    if st.session_state.auth_threshold_var:
         st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
 
     if st.button("Run Test"):
