@@ -1,3 +1,5 @@
+Sure! I'll integrate the "Data Cleaner" feature into your existing Streamlit code. The new feature will allow users to clean and process their data using the provided OffsetProcessorApp logic. Here's the complete updated code:
+PythonCopy
 import streamlit as st
 import pandas as pd
 import logging
@@ -25,6 +27,8 @@ if 'authorized_users' not in st.session_state:
     st.session_state.authorized_users = []
 if 'closing_date' not in st.session_state:
     st.session_state.closing_date = None
+if 'cleaned_df' not in st.session_state:
+    st.session_state.cleaned_df = None
 
 # Define required and optional fields
 required_fields = [
@@ -126,6 +130,85 @@ def perform_high_risk_test():
         st.error(f"Error during testing: {e}")
         logging.error(f"Error during high-risk testing: {e}")
 
+# Function to clean data
+def clean_data():
+    if st.session_state.df is None:
+        st.warning("No data to clean. Please import a CSV file first.")
+        return
+
+    try:
+        data = st.session_state.df
+        required_columns = ['TransactionID', 'AccountID', 'TransactionDate', 'Debit', 'Credit']
+        missing_columns = [col for col in required_columns if col not in data.columns]
+
+        if missing_columns:
+            st.error(f"Missing columns: {', '.join(missing_columns)}")
+            return
+
+        data['Result'] = ''
+        data['Days Difference'] = ''
+        unmatched_debits = {}
+        unmatched_credits = {}
+
+        for index, row in data.iterrows():
+            account_id = str(row['AccountID']).strip()
+            dr = round(row['Debit'], 2)
+            cr = round(row['Credit'], 2)
+            transaction_id = row['TransactionID']
+            transaction_date = pd.to_datetime(row['TransactionDate']) if pd.notnull(row['TransactionDate']) else None
+
+            if dr > 0:
+                if account_id in unmatched_credits and dr in unmatched_credits[account_id]:
+                    match_index, match_date = unmatched_credits[account_id][dr]
+                    data.at[index, 'Result'] = f'Offset with Transaction ID: {data.at[match_index, "TransactionID"]}'
+                    data.at[match_index, 'Result'] = f'Offset with Transaction ID: {transaction_id}'
+
+                    if transaction_date and match_date:
+                        days_diff = abs((transaction_date - match_date).days)
+                        data.at[index, 'Days Difference'] = f'{days_diff} days'
+                        data.at[match_index, 'Days Difference'] = f'{days_diff} days'
+                    else:
+                        data.at[index, 'Days Difference'] = 'N/A'
+                        data.at[match_index, 'Days Difference'] = 'N/A'
+
+                    del unmatched_credits[account_id][dr]
+                else:
+                    unmatched_debits.setdefault(account_id, {}).update({dr: (index, transaction_date)})
+
+            elif cr > 0:
+                if account_id in unmatched_debits and cr in unmatched_debits[account_id]:
+                    match_index, match_date = unmatched_debits[account_id][cr]
+                    data.at[index, 'Result'] = f'Offset with Transaction ID: {data.at[match_index, "TransactionID"]}'
+                    data.at[match_index, 'Result'] = f'Offset with Transaction ID: {transaction_id}'
+
+                    if transaction_date and match_date:
+                        days_diff = abs((transaction_date - match_date).days)
+                        data.at[index, 'Days Difference'] = f'{days_diff} days'
+                        data.at[match_index, 'Days Difference'] = f'{days_diff} days'
+                    else:
+                        data.at[index, 'Days Difference'] = 'N/A'
+                        data.at[match_index, 'Days Difference'] = 'N/A'
+
+                    del unmatched_debits[account_id][cr]
+                else:
+                    unmatched_credits.setdefault(account_id, {}).update({cr: (index, transaction_date)})
+
+        for account, debit_entries in unmatched_debits.items():
+            for index, _ in debit_entries.values():
+                data.at[index, 'Result'] = 'No offset'
+                data.at[index, 'Days Difference'] = 'N/A'
+
+        for account, credit_entries in unmatched_credits.items():
+            for index, _ in credit_entries.values():
+                data.at[index, 'Result'] = 'No offset'
+                data.at[index, 'Days Difference'] = 'N/A'
+
+        st.session_state.cleaned_df = data
+        st.success("Data cleaned successfully!")
+    except Exception as e:
+        st.error(f"Error during data cleaning: {e}")
+        logging.error(f"Error during data cleaning: {e}")
+
 # Streamlit UI
 st.title("MAHx-JET - Maham for Professional Services")
 
@@ -145,7 +228,7 @@ if st.session_state.df is not None:
     st.session_state.column_mapping = {}
     for field in all_fields:
         st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
-    
+
     if st.button("Confirm Mapping"):
         missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
         if missing_fields:
@@ -155,8 +238,13 @@ if st.session_state.df is not None:
             st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
             st.success("Columns mapped successfully!")
 
+# Data Cleaner
+st.header("2. Data Cleaner")
+if st.button("Clean Data"):
+    clean_data()
+
 # High-Risk Criteria & Testing
-st.header("2. High-Risk Criteria & Testing")
+st.header("3. High-Risk Criteria & Testing")
 st.session_state.public_holidays_var = st.checkbox("Public Holidays")
 st.session_state.rounded_var = st.checkbox("Rounded Numbers")
 st.session_state.unusual_users_var = st.checkbox("Unusual Users")
@@ -180,7 +268,7 @@ if st.button("Run Test"):
     perform_high_risk_test()
 
 # Export Reports
-st.header("3. Export Reports")
+st.header("4. Export Reports")
 if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
     if st.button("Export High-Risk Entries"):
         csv = st.session_state.high_risk_entries.to_csv(index=False)
@@ -216,3 +304,4 @@ The following fields are required for testing:
 if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
     st.header("Preview Data")
     st.dataframe(st.session_state.processed_df.head(10))
+This updated code includes a new section called "Data Cleaner" with a button labeled "Clean Data." When clicked, it will clean the imported data using the logic from the OffsetProcessorApp. The cleaned data will be stored in st.session_state.cleaned_df for further use.
