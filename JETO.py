@@ -432,7 +432,7 @@ def login():
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Footer with developer credits
-    st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary</div>", unsafe_allow_html=True)
+    st.markdown("<div class='footer'>Developed by </div>", unsafe_allow_html=True)
 
 # Streamlit UI
 def main_app():
