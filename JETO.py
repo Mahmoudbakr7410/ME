@@ -33,6 +33,8 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'auth_threshold' not in st.session_state:
     st.session_state.auth_threshold = 10000
+if 'suspicious_keywords' not in st.session_state:  # New session state variable for keywords
+    st.session_state.suspicious_keywords = []
 
 # Define required and optional fields
 required_fields = [
@@ -70,7 +72,7 @@ def is_99999(value):
     try:
         value = float(value)
         # Check if the value ends with 99999 (e.g., 999.99, 9999.99, 99999.99)
-        return abs(value - round(value, 0) >= 0.999 and abs(value - round(value, 0)) < 1.0
+        return abs(value - round(value, 0)) >= 0.999 and abs(value - round(value, 0)) < 1.0
     except (ValueError, TypeError):
         return False
 
@@ -153,6 +155,22 @@ def perform_high_risk_test():
                 st.session_state.processed_df["Credit Amount (Cr)"].apply(is_99999)
             ]
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
+
+        # Check for suspicious keywords
+        if st.session_state.keywords_var:
+            if "Entry Description" in st.session_state.processed_df.columns:
+                if not st.session_state.suspicious_keywords:
+                    st.warning("No suspicious keywords provided. Skipping keyword check.")
+                else:
+                    keyword_entries = st.session_state.processed_df[
+                        st.session_state.processed_df["Entry Description"].str.contains(
+                            "|".join(st.session_state.suspicious_keywords), case=False, na=False
+                        )
+                    ]
+                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, keyword_entries])
+            else:
+                st.error("Column 'Entry Description' not found in the data.")
+                return
 
         if not st.session_state.high_risk_entries.empty:
             st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
@@ -265,7 +283,8 @@ def main_app():
     st.session_state.unusual_users_var = st.checkbox("Unusual Users")
     st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
     st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
-    st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")  # New checkbox for 99999 pattern
+    st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
+    st.session_state.keywords_var = st.checkbox("Suspicious Keywords")  # New checkbox for keywords
 
     if st.session_state.public_holidays_var:
         public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
@@ -290,6 +309,13 @@ def main_app():
 
     if st.session_state.auth_threshold_var:
         st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
+
+    if st.session_state.keywords_var:  # New input for suspicious keywords
+        st.session_state.suspicious_keywords = st.text_area(
+            "Enter Suspicious Keywords (comma-separated):",
+            "miscellaneous, adjustment, correction, other, rounding"
+        ).strip().split(",")
+        st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
 
     if st.button("Run Test"):
         perform_high_risk_test()
