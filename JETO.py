@@ -1,9 +1,12 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import logging
 import math
 from io import StringIO
 import matplotlib.pyplot as plt
+import plotly.express as px
+from datetime import datetime
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -184,16 +187,17 @@ if st.button("Run Test"):
 if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
     st.header("Data Visualization")
     
-    # Plotting the high-risk entries
-    fig, ax = plt.subplots()
-    st.session_state.high_risk_entries["Debit Amount (Dr)"].plot(kind='bar', ax=ax, color='r', alpha=0.5, label='Debit Amount (Dr)')
-    st.session_state.high_risk_entries["Credit Amount (Cr)"].plot(kind='bar', ax=ax, color='b', alpha=0.5, label='Credit Amount (Cr)')
-    ax.set_xlabel('Entry Index')
-    ax.set_ylabel('Amount')
-    ax.set_title('High-Risk Entries: Debit vs Credit Amounts')
-    ax.legend()
-    
-    st.pyplot(fig)
+    # Plotting the high-risk entries using Plotly
+    st.subheader("Interactive Bar Chart: Debit vs Credit Amounts")
+    fig = px.bar(st.session_state.high_risk_entries, x="Transaction ID", y=["Debit Amount (Dr)", "Credit Amount (Cr)"],
+                 barmode='group', title="High-Risk Entries: Debit vs Credit Amounts")
+    st.plotly_chart(fig)
+
+    # Plotting a scatter plot for Debit vs Credit Amounts
+    st.subheader("Scatter Plot: Debit vs Credit Amounts")
+    fig2 = px.scatter(st.session_state.high_risk_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)",
+                      color="Transaction ID", title="Scatter Plot of Debit vs Credit Amounts")
+    st.plotly_chart(fig2)
 
 # Export Reports
 st.header("3. Export Reports")
