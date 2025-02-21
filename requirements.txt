@@ -9,3 +9,5 @@ plotly
 pandas
 fpdf
 xlsxwriter
+scikit-learn
+openpyxl
