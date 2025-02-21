@@ -304,4 +304,4 @@ The following fields are required for testing:
 if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
     st.header("Preview Data")
     st.dataframe(st.session_state.processed_df.head(10))
-This updated code includes a new section called "Data Cleaner" with a button labeled "Clean Data." When clicked, it will clean the imported data using the logic from the OffsetProcessorApp. The cleaned data will be stored in st.session_state.cleaned_df for further use.
+
