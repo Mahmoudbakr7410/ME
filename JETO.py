@@ -1,218 +1,47 @@
-import streamlit as st
-import pandas as pd
-import logging
-import math
-from io import StringIO
+# Check for large transactions
+if st.session_state.large_transactions_var:
+    if "Debit Amount (Dr)" in st.session_state.processed_df.columns and "Credit Amount (Cr)" in st.session_state.processed_df.columns:
+        large_entries = st.session_state.processed_df[
+            (st.session_state.processed_df["Debit Amount (Dr)"] > st.session_state.large_threshold) |
+            (st.session_state.processed_df["Credit Amount (Cr)"] > st.session_state.large_threshold)
+        ]
+        st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, large_entries])
 
-# Set up logging
-logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logging.info("Application started")
+# Check for manual journal entries
+if st.session_state.manual_entries_var:
+    if "Manual Entry Flag" in st.session_state.processed_df.columns:
+        manual_entries = st.session_state.processed_df[st.session_state.processed_df["Manual Entry Flag"] == 1]
+        st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, manual_entries])
 
-# Initialize session state variables
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'processed_df' not in st.session_state:
-    st.session_state.processed_df = None
-if 'public_holidays' not in st.session_state:
-    st.session_state.public_holidays = []
-if 'high_risk_entries' not in st.session_state:
-    st.session_state.high_risk_entries = None
-if 'rounded_threshold' not in st.session_state:
-    st.session_state.rounded_threshold = 100
-if 'column_mapping' not in st.session_state:
-    st.session_state.column_mapping = {}
-if 'authorized_users' not in st.session_state:
-    st.session_state.authorized_users = []
-if 'closing_date' not in st.session_state:
-    st.session_state.closing_date = None
+# Check for suspense account transactions
+if st.session_state.suspense_accounts_var:
+    if "Suspense Account Flag" in st.session_state.processed_df.columns:
+        suspense_entries = st.session_state.processed_df[st.session_state.processed_df["Suspense Account Flag"] == 1]
+        st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, suspense_entries])
 
-# Define required and optional fields
-required_fields = [
-    "Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)"
-]
+# Check for weekend transactions
+if st.session_state.weekend_entries_var:
+    if "Date" in st.session_state.processed_df.columns:
+        weekend_entries = st.session_state.processed_df[st.session_state.processed_df["Date"].dt.weekday >= 5]  # Saturday (5) or Sunday (6)
+        st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, weekend_entries])
 
-optional_fields = [
-    "Journal Entry ID", "Posting Date", "Entry Description", "Document Number",
-    "Period/Month", "Year", "Entry Type", "Reversal Indicator", "Account ID", "Account Name",
-    "Account Type", "Cost Center", "Subledger Type", "Subledger ID", "Currency", "Local Currency Amount",
-    "Exchange Rate", "Net Amount", "Created By", "Approved By", "Posting User", "Approval Date",
-    "Journal Source", "Manual Entry Flag", "High-Risk Account Flag", "Suspense Account Flag",
-    "Offsetting Entry Indicator", "Period-End Flag", "Weekend/Holiday Flag", "Round Number Flag"
-]
-
-all_fields = required_fields + optional_fields
-
-# Function to convert data types
-def convert_data_types(df):
-    # Convert numeric fields
-    numeric_fields = ["Debit Amount (Dr)", "Credit Amount (Cr)"]
-    for field in numeric_fields:
-        if field in df.columns:
-            df[field] = pd.to_numeric(df[field], errors="coerce")
-
-    # Convert date fields
-    date_fields = ["Date"]
-    for field in date_fields:
-        if field in df.columns:
-            df[field] = pd.to_datetime(df[field], errors="coerce")
-    return df
-
-# Function to perform high-risk testing
-def perform_high_risk_test():
-    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to test. Please import a CSV file first.")
-        return
-
-    try:
-        # Initialize high-risk entries
-        st.session_state.high_risk_entries = pd.DataFrame()
-
-        # Check for public holiday entries
-        if st.session_state.public_holidays_var:
-            if "Date" in st.session_state.processed_df.columns:
-                holiday_entries = st.session_state.processed_df[st.session_state.processed_df["Date"].isin(st.session_state.public_holidays)]
-                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, holiday_entries])
-            else:
-                st.error("Column 'Date' not found in the data.")
-                return
-
-        # Check for rounded numbers
-        if st.session_state.rounded_var:
-            def is_rounded(value, threshold):
-                try:
-                    value = float(value)  # Ensure value is numeric
-                    if value == 0:
-                        return False  # Ignore zero values
-                    return (value % threshold == 0) or (math.isclose(value % threshold, threshold, rel_tol=1e-6))
-                except (ValueError, TypeError):
-                    return False  # Ignore non-numeric values
-
-            rounded_entries = st.session_state.processed_df[
-                st.session_state.processed_df["Debit Amount (Dr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold)) |
-                st.session_state.processed_df["Credit Amount (Cr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold))
-            ]
-            st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, rounded_entries])
-
-        # Check for unusual users
-        if st.session_state.unusual_users_var:
-            if "Created By" in st.session_state.processed_df.columns:
-                # Ensure authorized_users is not empty
-                if not st.session_state.authorized_users:
-                    st.warning("No authorized users provided. Skipping unusual users check.")
-                else:
-                    unusual_user_entries = st.session_state.processed_df[~st.session_state.processed_df["Created By"].isin(st.session_state.authorized_users)]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, unusual_user_entries])
-            else:
-                st.error("Column 'Created By' not found in the data.")
-                return
-
-        # Check for post-closing entries
-        if st.session_state.post_closing_var:
-            if "Date" in st.session_state.processed_df.columns:
-                if st.session_state.closing_date is None:
-                    st.warning("No closing date provided. Skipping post-closing entries check.")
-                else:
-                    post_closing_entries = st.session_state.processed_df[st.session_state.processed_df["Date"] > st.session_state.closing_date]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, post_closing_entries])
-            else:
-                st.error("Column 'Date' not found in the data.")
-                return
-
-        if not st.session_state.high_risk_entries.empty:
-            st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
-        else:
-            st.success("No high-risk entries found.")
-    except Exception as e:
-        st.error(f"Error during testing: {e}")
-        logging.error(f"Error during high-risk testing: {e}")
-
-# Streamlit UI
-st.title("MAHx-JET - Maham for Professional Services")
-
-# Data Import & Processing
-st.header("1. Data Import & Processing")
-uploaded_file = st.file_uploader("Import CSV", type=["csv"])
-if uploaded_file is not None:
-    try:
-        st.session_state.df = pd.read_csv(uploaded_file)
-        st.success("CSV file imported successfully!")
-    except Exception as e:
-        st.error(f"Failed to import file: {e}")
-        logging.error(f"Failed to import file: {e}")
-
-if st.session_state.df is not None:
-    st.subheader("Map Columns")
-    st.session_state.column_mapping = {}
-    for field in all_fields:
-        st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
-    
-    if st.button("Confirm Mapping"):
-        missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
-        if missing_fields:
-            st.error(f"Missing required fields: {missing_fields}")
-        else:
-            st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
-            st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
-            st.success("Columns mapped successfully!")
-
-# High-Risk Criteria & Testing
-st.header("2. High-Risk Criteria & Testing")
-st.session_state.public_holidays_var = st.checkbox("Public Holidays")
-st.session_state.rounded_var = st.checkbox("Rounded Numbers")
-st.session_state.unusual_users_var = st.checkbox("Unusual Users")
-st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
-
-if st.session_state.public_holidays_var:
-    st.session_state.public_holidays = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
-    st.session_state.public_holidays = [pd.to_datetime(date.strip()) for date in st.session_state.public_holidays if date.strip()]
-
-if st.session_state.rounded_var:
-    st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
-
-if st.session_state.unusual_users_var:
-    st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
-    st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
-
-if st.session_state.post_closing_var:
-    st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
-
-if st.button("Run Test"):
-    perform_high_risk_test()
-
-# Export Reports
-st.header("3. Export Reports")
-if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
-    if st.button("Export High-Risk Entries"):
-        csv = st.session_state.high_risk_entries.to_csv(index=False)
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name="high_risk_entries.csv",
-            mime="text/csv",
+# Check for offsetting transactions within same user & period
+if st.session_state.offsetting_entries_var:
+    if {"Created By", "Debit Amount (Dr)", "Credit Amount (Cr)", "Period/Month"}.issubset(st.session_state.processed_df.columns):
+        offsetting_entries = st.session_state.processed_df.groupby(["Created By", "Period/Month"]).filter(
+            lambda x: (x["Debit Amount (Dr)"].sum() - x["Credit Amount (Cr)"].sum()).abs() < 1e-6
         )
-else:
-    st.warning("No high-risk entries to export. Please run the test first.")
+        st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, offsetting_entries])
 
-# Guide
-st.sidebar.header("Guide")
-st.sidebar.markdown("""
-**Journal Entry Testing Guide**
+# Check for duplicate transactions
+if st.session_state.duplicate_entries_var:
+    duplicate_entries = st.session_state.processed_df[st.session_state.processed_df.duplicated(
+        subset=["Date", "Debit Amount (Dr)", "Credit Amount (Cr)", "Account ID"], keep=False
+    )]
+    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, duplicate_entries])
 
-The following fields are required for testing:
-- Transaction ID
-- Date
-- Debit Amount (Dr)
-- Credit Amount (Cr)
-
-**Steps:**
-1. Import a CSV file containing the required fields.
-2. Map the CSV columns to the required fields.
-3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
-4. Run the test to identify high-risk entries.
-5. Export the results to a CSV file.
-""")
-
-# Preview Data
-if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-    st.header("Preview Data")
-    st.dataframe(st.session_state.processed_df.head(10))
+# Check for transactions with no description
+if st.session_state.no_description_var:
+    if "Entry Description" in st.session_state.processed_df.columns:
+        no_description_entries = st.session_state.processed_df[st.session_state.processed_df["Entry Description"].isna()]
+        st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, no_description_entries])
