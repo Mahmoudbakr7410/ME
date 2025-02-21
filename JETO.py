@@ -50,11 +50,11 @@ if 'year_audited' not in st.session_state:
     st.session_state.year_audited = datetime.now().year
 if 'flagged_entries_by_category' not in st.session_state:
     st.session_state.flagged_entries_by_category = {}
-if 'pattern_recognition_results' not in st.session_state:  # New session state variable for pattern recognition
+if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
-if 'seldomly_used_accounts_threshold' not in st.session_state:  # New session state variable for seldomly used accounts threshold
+if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
-if 'monthly_trial_balance' not in st.session_state:  # New session state variable for monthly trial balance
+if 'monthly_trial_balance' not in st.session_state:
     st.session_state.monthly_trial_balance = None
 
 # Define required and optional fields
@@ -87,15 +87,6 @@ def convert_data_types(df):
         if field in df.columns:
             df[field] = pd.to_datetime(df[field], errors="coerce")
     return df
-
-# Function to check for 99999 pattern
-def is_99999(value):
-    try:
-        value = float(value)
-        # Check if the value ends with 99999 (e.g., 999.99, 9999.99, 99999.99)
-        return abs(value - round(value, 0)) >= 0.999 and abs(value - round(value, 0)) < 1.0
-    except (ValueError, TypeError):
-        return False
 
 # Function to perform completeness check
 def perform_completeness_check():
@@ -161,38 +152,6 @@ def perform_completeness_check():
         st.error(f"Error during completeness check: {e}")
         logging.error(f"Error during completeness check: {e}")
 
-# Function to detect seldomly used accounts
-def detect_seldomly_used_accounts():
-    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to analyze. Please import a CSV file first.")
-        return
-
-    try:
-        # Count the frequency of each account number
-        account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
-        account_frequency.columns = ["Account Number", "Transaction Count"]
-
-        # Define seldomly used accounts as those with fewer than the specified threshold
-        seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
-
-        # Store results in session state
-        st.session_state.seldomly_used_accounts = seldomly_used_accounts
-
-        # Display results
-        st.subheader("Seldomly Used Accounts")
-        st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {st.session_state.seldomly_used_accounts_threshold} transactions.")
-        st.dataframe(seldomly_used_accounts)
-
-        # Provide a conclusion
-        st.subheader("Conclusion")
-        if len(seldomly_used_accounts) > 0:
-            st.warning(f"{len(seldomly_used_accounts)} accounts are seldomly used. Review these accounts for potential risks.")
-        else:
-            st.success("No seldomly used accounts found.")
-    except Exception as e:
-        st.error(f"Error during seldomly used accounts detection: {e}")
-        logging.error(f"Error during seldomly used accounts detection: {e}")
-
 # Function to create monthly trial balance
 def create_monthly_trial_balance():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
@@ -203,46 +162,63 @@ def create_monthly_trial_balance():
         return
 
     try:
-        # Extract month and year from the Date column
-        st.session_state.processed_df["Month"] = st.session_state.processed_df["Date"].dt.to_period("M")
+        # Ask the user how often the company closes its books
+        closing_frequency = st.selectbox(
+            "How often does the company close its books?",
+            options=["Monthly", "Quarterly", "Semi-Annually", "Annually"],
+            index=0  # Default to Monthly
+        )
 
-        # Group by Account Number and Month, then calculate total debits and credits
-        monthly_summary = st.session_state.processed_df.groupby(["Account Number", "Month"]).agg(
+        # Map the closing frequency to a pandas period
+        if closing_frequency == "Monthly":
+            period = "M"
+        elif closing_frequency == "Quarterly":
+            period = "Q"
+        elif closing_frequency == "Semi-Annually":
+            period = "6M"
+        elif closing_frequency == "Annually":
+            period = "Y"
+
+        # Extract period from the Date column
+        st.session_state.processed_df["Period"] = st.session_state.processed_df["Date"].dt.to_period(period)
+
+        # Group by Account Number and Period, then calculate total debits and credits
+        period_summary = st.session_state.processed_df.groupby(["Account Number", "Period"]).agg(
             Total_Debits=("Debit Amount (Dr)", "sum"),
             Total_Credits=("Credit Amount (Cr)", "sum")
         ).reset_index()
 
-        # Merge with the original trial balance to get the opening balance for the first month
-        monthly_trial_balance = pd.merge(
-            monthly_summary,
+        # Merge with the original trial balance to get the opening balance for the first period
+        period_trial_balance = pd.merge(
+            period_summary,
             st.session_state.trial_balance[["Account Number", "Opening Balance"]],
             on="Account Number",
             how="left"
         )
 
-        # Sort by Account Number and Month
-        monthly_trial_balance = monthly_trial_balance.sort_values(by=["Account Number", "Month"])
+        # Sort by Account Number and Period
+        period_trial_balance = period_trial_balance.sort_values(by=["Account Number", "Period"])
 
         # Initialize opening and ending balances
-        monthly_trial_balance["Opening Balance"] = monthly_trial_balance.groupby("Account Number")["Opening Balance"].ffill()
-        monthly_trial_balance["Ending Balance"] = monthly_trial_balance["Opening Balance"] + monthly_trial_balance["Total_Debits"] - monthly_trial_balance["Total_Credits"]
+        period_trial_balance["Opening Balance"] = period_trial_balance.groupby("Account Number")["Opening Balance"].ffill()
+        period_trial_balance["Ending Balance"] = period_trial_balance["Opening Balance"] + period_trial_balance["Total_Debits"] - period_trial_balance["Total_Credits"]
 
-        # Roll forward the ending balance to the next month's opening balance
-        monthly_trial_balance["Next Month Opening Balance"] = monthly_trial_balance.groupby("Account Number")["Ending Balance"].shift(-1)
+        # Roll forward the ending balance to the next period's opening balance
+        period_trial_balance["Next Period Opening Balance"] = period_trial_balance.groupby("Account Number")["Ending Balance"].shift(-1)
 
-        # Fill NaN for the last month's next opening balance
-        monthly_trial_balance["Next Month Opening Balance"] = monthly_trial_balance["Next Month Opening Balance"].fillna(monthly_trial_balance["Ending Balance"])
+        # Fill NaN for the last period's next opening balance
+        period_trial_balance["Next Period Opening Balance"] = period_trial_balance["Next Period Opening Balance"].fillna(period_trial_balance["Ending Balance"])
 
         # Store results in session state
-        st.session_state.monthly_trial_balance = monthly_trial_balance
+        st.session_state.monthly_trial_balance = period_trial_balance
 
         # Display results
-        st.subheader("Monthly Trial Balance")
-        st.dataframe(monthly_trial_balance)
+        st.subheader(f"{closing_frequency} Trial Balance")
+        st.dataframe(period_trial_balance)
 
         # Provide a conclusion
         st.subheader("Conclusion")
-        st.success("Monthly trial balance created successfully!")
+        st.success(f"{closing_frequency} trial balance created successfully!")
     except Exception as e:
         st.error(f"Error during monthly trial balance creation: {e}")
         logging.error(f"Error during monthly trial balance creation: {e}")
@@ -257,10 +233,10 @@ def export_monthly_trial_balance():
         # Create an Excel writer object
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            # Split the monthly trial balance into separate dataframes for each month
-            for month in st.session_state.monthly_trial_balance["Month"].unique():
-                month_data = st.session_state.monthly_trial_balance[st.session_state.monthly_trial_balance["Month"] == month]
-                month_data.to_excel(writer, sheet_name=str(month), index=False)
+            # Split the monthly trial balance into separate dataframes for each period
+            for period in st.session_state.monthly_trial_balance["Period"].unique():
+                period_data = st.session_state.monthly_trial_balance[st.session_state.monthly_trial_balance["Period"] == period]
+                period_data.to_excel(writer, sheet_name=str(period), index=False)
 
         # Prepare the Excel file for download
         output.seek(0)
@@ -268,100 +244,6 @@ def export_monthly_trial_balance():
     except Exception as e:
         st.error(f"Error during export: {e}")
         logging.error(f"Error during export: {e}")
-
-# Function to perform data mining and pattern recognition
-def perform_pattern_recognition():
-    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to analyze. Please import a CSV file first.")
-        return
-
-    try:
-        # Select numeric columns for pattern recognition
-        numeric_cols = st.session_state.processed_df.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols) == 0:
-            st.warning("No numeric columns found for pattern recognition.")
-            return
-
-        # Scale the data
-        scaler = StandardScaler()
-        scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols])
-
-        # Perform KMeans clustering
-        kmeans = KMeans(n_clusters=3)  # You can adjust the number of clusters
-        clusters = kmeans.fit_predict(scaled_data)
-
-        # Add cluster results to the dataframe
-        st.session_state.processed_df["Cluster"] = clusters
-
-        # Analyze clusters for patterns
-        cluster_summary = st.session_state.processed_df.groupby("Cluster").agg(
-            Count=("Cluster", "size"),
-            Avg_Debit=("Debit Amount (Dr)", "mean"),
-            Avg_Credit=("Credit Amount (Cr)", "mean")
-        ).reset_index()
-
-        # Store results in session state
-        st.session_state.pattern_recognition_results = cluster_summary
-
-        # Display results
-        st.subheader("Pattern Recognition Results")
-        st.dataframe(cluster_summary)
-
-        # Provide a conclusion based on the clusters
-        st.subheader("Conclusion")
-        if len(cluster_summary) > 1:
-            st.success("Pattern recognition identified distinct groups of transactions. Review the clusters for insights.")
-        else:
-            st.warning("No significant patterns were found in the data.")
-    except Exception as e:
-        st.error(f"Error during pattern recognition: {e}")
-        logging.error(f"Error during pattern recognition: {e}")
-
-# Function to export PDF report
-def export_pdf_report():
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-
-    # Add firm name
-    pdf.cell(200, 10, txt="Maham for Professional Services", ln=True, align="C")
-
-    # Add audited client name and year
-    pdf.cell(200, 10, txt=f"Audited Client: {st.session_state.audited_client_name}", ln=True, align="L")
-    pdf.cell(200, 10, txt=f"Year Audited: {st.session_state.year_audited}", ln=True, align="L")
-
-    # Add timing and username
-    pdf.cell(200, 10, txt=f"Report Generated On: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="L")
-    pdf.cell(200, 10, txt=f"Generated By: {st.session_state.logged_in_user}", ln=True, align="L")
-
-    # Add completeness check conclusion
-    pdf.cell(200, 10, txt="Completeness Check Conclusion:", ln=True, align="L")
-    if st.session_state.completeness_check_passed:
-        pdf.cell(200, 10, txt="Completeness check passed. Maximum discrepancy is within the allowed tolerance of 5.", ln=True, align="L")
-    else:
-        max_discrepancy = st.session_state.completeness_check_results["Discrepancy"].abs().max()
-        pdf.cell(200, 10, txt=f"Completeness check failed. Maximum discrepancy ({max_discrepancy}) exceeds the allowed tolerance of 5.", ln=True, align="L")
-
-    # Add flagged entries by category
-    pdf.cell(200, 10, txt="Flagged Entries by Category:", ln=True, align="L")
-    pdf.set_font("Arial", size=10)
-    for category, entries in st.session_state.flagged_entries_by_category.items():
-        pdf.cell(200, 10, txt=f"Category: {category}", ln=True, align="L")
-        for index, row in entries.iterrows():
-            pdf.cell(200, 10, txt=f"Transaction ID: {row['Transaction ID']}, Date: {row['Date']}, Debit: {row['Debit Amount (Dr)']}, Credit: {row['Credit Amount (Cr)']}", ln=True, align="L")
-
-    # Save the PDF
-    pdf_output = pdf.output(dest="S").encode("latin1")
-    return pdf_output
-
-# Function to export Excel report
-def export_excel_report():
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        for category, entries in st.session_state.flagged_entries_by_category.items():
-            entries.to_excel(writer, sheet_name=category, index=False)
-    output.seek(0)
-    return output
 
 # Function to perform high-risk testing
 def perform_high_risk_test():
