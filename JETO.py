@@ -198,19 +198,40 @@ def create_monthly_trial_balance():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
         st.warning("No data to analyze. Please import a CSV file first.")
         return
+    if st.session_state.trial_balance is None or st.session_state.trial_balance.empty:
+        st.warning("No trial balance data to analyze. Please import a trial balance CSV file first.")
+        return
 
     try:
         # Extract month and year from the Date column
         st.session_state.processed_df["Month"] = st.session_state.processed_df["Date"].dt.to_period("M")
 
         # Group by Account Number and Month, then calculate total debits and credits
-        monthly_trial_balance = st.session_state.processed_df.groupby(["Account Number", "Month"]).agg(
+        monthly_summary = st.session_state.processed_df.groupby(["Account Number", "Month"]).agg(
             Total_Debits=("Debit Amount (Dr)", "sum"),
             Total_Credits=("Credit Amount (Cr)", "sum")
         ).reset_index()
 
-        # Calculate the net balance for each account per month
-        monthly_trial_balance["Net Balance"] = monthly_trial_balance["Total_Debits"] - monthly_trial_balance["Total_Credits"]
+        # Merge with the original trial balance to get the opening balance for the first month
+        monthly_trial_balance = pd.merge(
+            monthly_summary,
+            st.session_state.trial_balance[["Account Number", "Opening Balance"]],
+            on="Account Number",
+            how="left"
+        )
+
+        # Sort by Account Number and Month
+        monthly_trial_balance = monthly_trial_balance.sort_values(by=["Account Number", "Month"])
+
+        # Initialize opening and ending balances
+        monthly_trial_balance["Opening Balance"] = monthly_trial_balance.groupby("Account Number")["Opening Balance"].ffill()
+        monthly_trial_balance["Ending Balance"] = monthly_trial_balance["Opening Balance"] + monthly_trial_balance["Total_Debits"] - monthly_trial_balance["Total_Credits"]
+
+        # Roll forward the ending balance to the next month's opening balance
+        monthly_trial_balance["Next Month Opening Balance"] = monthly_trial_balance.groupby("Account Number")["Ending Balance"].shift(-1)
+
+        # Fill NaN for the last month's next opening balance
+        monthly_trial_balance["Next Month Opening Balance"] = monthly_trial_balance["Next Month Opening Balance"].fillna(monthly_trial_balance["Ending Balance"])
 
         # Store results in session state
         st.session_state.monthly_trial_balance = monthly_trial_balance
