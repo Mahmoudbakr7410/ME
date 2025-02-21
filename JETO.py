@@ -29,6 +29,8 @@ if 'authorized_users' not in st.session_state:
     st.session_state.authorized_users = []
 if 'closing_date' not in st.session_state:
     st.session_state.closing_date = None
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
 
 # Define required and optional fields
 required_fields = [
@@ -130,109 +132,125 @@ def perform_high_risk_test():
         st.error(f"Error during testing: {e}")
         logging.error(f"Error during high-risk testing: {e}")
 
+# Authentication
+def login():
+    st.sidebar.header("Login")
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type="password")
+    if st.sidebar.button("Login"):
+        if username == "m.elansary@maham.com" and password == "123456789":
+            st.session_state.logged_in = True
+            st.sidebar.success("Logged in successfully!")
+        else:
+            st.sidebar.error("Invalid username or password")
+
 # Streamlit UI
 st.title("MAHx-JET - Maham for Professional Services")
 
-# Data Import & Processing
-st.header("1. Data Import & Processing")
-uploaded_file = st.file_uploader("Import CSV", type=["csv"])
-if uploaded_file is not None:
-    try:
-        st.session_state.df = pd.read_csv(uploaded_file)
-        st.success("CSV file imported successfully!")
-    except Exception as e:
-        st.error(f"Failed to import file: {e}")
-        logging.error(f"Failed to import file: {e}")
-
-if st.session_state.df is not None:
-    st.subheader("Map Columns")
-    st.session_state.column_mapping = {}
-    for field in all_fields:
-        st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
-    
-    if st.button("Confirm Mapping"):
-        missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
-        if missing_fields:
-            st.error(f"Missing required fields: {missing_fields}")
-        else:
-            st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
-            st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
-            st.success("Columns mapped successfully!")
-
-# High-Risk Criteria & Testing
-st.header("2. High-Risk Criteria & Testing")
-st.session_state.public_holidays_var = st.checkbox("Public Holidays")
-st.session_state.rounded_var = st.checkbox("Rounded Numbers")
-st.session_state.unusual_users_var = st.checkbox("Unusual Users")
-st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
-
-if st.session_state.public_holidays_var:
-    st.session_state.public_holidays = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
-    st.session_state.public_holidays = [pd.to_datetime(date.strip()) for date in st.session_state.public_holidays if date.strip()]
-
-if st.session_state.rounded_var:
-    st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
-
-if st.session_state.unusual_users_var:
-    st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
-    st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
-
-if st.session_state.post_closing_var:
-    st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
-
-if st.button("Run Test"):
-    perform_high_risk_test()
-
-# Data Visualization
-if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
-    st.header("Data Visualization")
-    
-    # Plotting the high-risk entries using Plotly
-    st.subheader("Interactive Bar Chart: Debit vs Credit Amounts")
-    fig = px.bar(st.session_state.high_risk_entries, x="Transaction ID", y=["Debit Amount (Dr)", "Credit Amount (Cr)"],
-                 barmode='group', title="High-Risk Entries: Debit vs Credit Amounts")
-    st.plotly_chart(fig)
-
-    # Plotting a scatter plot for Debit vs Credit Amounts
-    st.subheader("Scatter Plot: Debit vs Credit Amounts")
-    fig2 = px.scatter(st.session_state.high_risk_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)",
-                      color="Transaction ID", title="Scatter Plot of Debit vs Credit Amounts")
-    st.plotly_chart(fig2)
-
-# Export Reports
-st.header("3. Export Reports")
-if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
-    if st.button("Export High-Risk Entries"):
-        csv = st.session_state.high_risk_entries.to_csv(index=False)
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name="high_risk_entries.csv",
-            mime="text/csv",
-        )
+# Check if user is logged in
+if not st.session_state.logged_in:
+    login()
 else:
-    st.warning("No high-risk entries to export. Please run the test first.")
+    # Data Import & Processing
+    st.header("1. Data Import & Processing")
+    uploaded_file = st.file_uploader("Import CSV", type=["csv"])
+    if uploaded_file is not None:
+        try:
+            st.session_state.df = pd.read_csv(uploaded_file)
+            st.success("CSV file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import file: {e}")
+            logging.error(f"Failed to import file: {e}")
 
-# Guide
-st.sidebar.header("Guide")
-st.sidebar.markdown("""
-**Journal Entry Testing Guide**
+    if st.session_state.df is not None:
+        st.subheader("Map Columns")
+        st.session_state.column_mapping = {}
+        for field in all_fields:
+            st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
+        
+        if st.button("Confirm Mapping"):
+            missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
+            if missing_fields:
+                st.error(f"Missing required fields: {missing_fields}")
+            else:
+                st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
+                st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
+                st.success("Columns mapped successfully!")
 
-The following fields are required for testing:
-- Transaction ID
-- Date
-- Debit Amount (Dr)
-- Credit Amount (Cr)
+    # High-Risk Criteria & Testing
+    st.header("2. High-Risk Criteria & Testing")
+    st.session_state.public_holidays_var = st.checkbox("Public Holidays")
+    st.session_state.rounded_var = st.checkbox("Rounded Numbers")
+    st.session_state.unusual_users_var = st.checkbox("Unusual Users")
+    st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
 
-**Steps:**
-1. Import a CSV file containing the required fields.
-2. Map the CSV columns to the required fields.
-3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
-4. Run the test to identify high-risk entries.
-5. Export the results to a CSV file.
-""")
+    if st.session_state.public_holidays_var:
+        st.session_state.public_holidays = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
+        st.session_state.public_holidays = [pd.to_datetime(date.strip()) for date in st.session_state.public_holidays if date.strip()]
 
-# Preview Data
-if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-    st.header("Preview Data")
-    st.dataframe(st.session_state.processed_df.head(10))
+    if st.session_state.rounded_var:
+        st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
+
+    if st.session_state.unusual_users_var:
+        st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
+        st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
+
+    if st.session_state.post_closing_var:
+        st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
+
+    if st.button("Run Test"):
+        perform_high_risk_test()
+
+    # Data Visualization
+    if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
+        st.header("Data Visualization")
+        
+        # Plotting the high-risk entries using Plotly
+        st.subheader("Interactive Bar Chart: Debit vs Credit Amounts")
+        fig = px.bar(st.session_state.high_risk_entries, x="Transaction ID", y=["Debit Amount (Dr)", "Credit Amount (Cr)"],
+                     barmode='group', title="High-Risk Entries: Debit vs Credit Amounts")
+        st.plotly_chart(fig)
+
+        # Plotting a scatter plot for Debit vs Credit Amounts
+        st.subheader("Scatter Plot: Debit vs Credit Amounts")
+        fig2 = px.scatter(st.session_state.high_risk_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)",
+                          color="Transaction ID", title="Scatter Plot of Debit vs Credit Amounts")
+        st.plotly_chart(fig2)
+
+    # Export Reports
+    st.header("3. Export Reports")
+    if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
+        if st.button("Export High-Risk Entries"):
+            csv = st.session_state.high_risk_entries.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name="high_risk_entries.csv",
+                mime="text/csv",
+            )
+    else:
+        st.warning("No high-risk entries to export. Please run the test first.")
+
+    # Guide
+    st.sidebar.header("Guide")
+    st.sidebar.markdown("""
+    **Journal Entry Testing Guide**
+
+    The following fields are required for testing:
+    - Transaction ID
+    - Date
+    - Debit Amount (Dr)
+    - Credit Amount (Cr)
+
+    **Steps:**
+    1. Import a CSV file containing the required fields.
+    2. Map the CSV columns to the required fields.
+    3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
+    4. Run the test to identify high-risk entries.
+    5. Export the results to a CSV file.
+    """)
+
+    # Preview Data
+    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
+        st.header("Preview Data")
+        st.dataframe(st.session_state.processed_df.head(10))
