@@ -296,7 +296,7 @@ def login():
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        if username == "m.elansary@maham.com" and password == "123456789":
+        if username == "m.elansary@maham.com" and password == "74107410":
             st.session_state.logged_in = True
             st.success("Logged in successfully!")
         else:
