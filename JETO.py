@@ -3,6 +3,9 @@ import pandas as pd
 import logging
 import math
 from io import StringIO
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+import io
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -126,6 +129,33 @@ def perform_high_risk_test():
         st.error(f"Error during testing: {e}")
         logging.error(f"Error during high-risk testing: {e}")
 
+# Function to generate PDF
+def generate_pdf(df):
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    c.setFont("Helvetica", 10)
+    y_position = height - 40
+    
+    c.drawString(30, y_position, "High-Risk Entries Report")
+    y_position -= 20
+    
+    for col in df.columns:
+        c.drawString(30, y_position, col)
+        y_position -= 15
+    y_position -= 10
+    
+    for index, row in df.iterrows():
+        for col in df.columns:
+            c.drawString(30, y_position, str(row[col]))
+            y_position -= 15
+        y_position -= 5
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
 # Streamlit UI
 st.title("MAHx-JET - Maham for Professional Services")
 
@@ -182,37 +212,13 @@ if st.button("Run Test"):
 # Export Reports
 st.header("3. Export Reports")
 if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
-    if st.button("Export High-Risk Entries"):
-        csv = st.session_state.high_risk_entries.to_csv(index=False)
+    if st.button("Export High-Risk Entries as PDF"):
+        pdf = generate_pdf(st.session_state.high_risk_entries)
         st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name="high_risk_entries.csv",
-            mime="text/csv",
+            label="Download PDF",
+            data=pdf,
+            file_name="high_risk_entries_report.pdf",
+            mime="application/pdf",
         )
 else:
     st.warning("No high-risk entries to export. Please run the test first.")
-
-# Guide
-st.sidebar.header("Guide")
-st.sidebar.markdown("""
-**Journal Entry Testing Guide**
-
-The following fields are required for testing:
-- Transaction ID
-- Date
-- Debit Amount (Dr)
-- Credit Amount (Cr)
-
-**Steps:**
-1. Import a CSV file containing the required fields.
-2. Map the CSV columns to the required fields.
-3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
-4. Run the test to identify high-risk entries.
-5. Export the results to a CSV file.
-""")
-
-# Preview Data
-if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-    st.header("Preview Data")
-    st.dataframe(st.session_state.processed_df.head(10))
