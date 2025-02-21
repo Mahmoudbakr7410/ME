@@ -31,6 +31,8 @@ if 'closing_date' not in st.session_state:
     st.session_state.closing_date = None
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
+if 'auth_threshold' not in st.session_state:  # New session state variable
+    st.session_state.auth_threshold = 10000
 
 # Define required and optional fields
 required_fields = [
@@ -123,6 +125,17 @@ def perform_high_risk_test():
             else:
                 st.error("Column 'Date' not found in the data.")
                 return
+
+        # Check for entries just below authorization threshold
+        if st.session_state.auth_threshold_var:
+            threshold = st.session_state.auth_threshold
+            below_threshold_entries = st.session_state.processed_df[
+                (st.session_state.processed_df["Debit Amount (Dr)"] >= threshold * 0.9) & 
+                (st.session_state.processed_df["Debit Amount (Dr)"] < threshold) |
+                (st.session_state.processed_df["Credit Amount (Cr)"] >= threshold * 0.9) & 
+                (st.session_state.processed_df["Credit Amount (Cr)"] < threshold)
+            ]
+            st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, below_threshold_entries])
 
         if not st.session_state.high_risk_entries.empty:
             st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
@@ -234,6 +247,7 @@ def main_app():
     st.session_state.rounded_var = st.checkbox("Rounded Numbers")
     st.session_state.unusual_users_var = st.checkbox("Unusual Users")
     st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
+    st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")  # New checkbox
 
     if st.session_state.public_holidays_var:
         public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
@@ -255,6 +269,9 @@ def main_app():
 
     if st.session_state.post_closing_var:
         st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
+
+    if st.session_state.auth_threshold_var:  # New input for authorization threshold
+        st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
 
     if st.button("Run Test"):
         perform_high_risk_test()
