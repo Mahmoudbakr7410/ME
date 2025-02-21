@@ -7,5 +7,5 @@ seaborn
 numpy
 plotly
 pandas
-sqlite3
+
 
