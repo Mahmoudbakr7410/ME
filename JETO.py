@@ -3,6 +3,8 @@ import pandas as pd
 import logging
 import math
 from io import StringIO
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -179,8 +181,34 @@ if st.session_state.post_closing_var:
 if st.button("Run Test"):
     perform_high_risk_test()
 
+# Data Visualization
+st.header("3. Data Visualization")
+
+if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
+    st.subheader("Debit vs Credit Amounts")
+    fig, ax = plt.subplots()
+    sns.scatterplot(data=st.session_state.processed_df, x="Debit Amount (Dr)", y="Credit Amount (Cr)", ax=ax)
+    st.pyplot(fig)
+
+    st.subheader("Distribution of Debit Amounts")
+    fig, ax = plt.subplots()
+    sns.histplot(st.session_state.processed_df["Debit Amount (Dr)"].dropna(), kde=True, ax=ax)
+    st.pyplot(fig)
+
+    st.subheader("Distribution of Credit Amounts")
+    fig, ax = plt.subplots()
+    sns.histplot(st.session_state.processed_df["Credit Amount (Cr)"].dropna(), kde=True, ax=ax)
+    st.pyplot(fig)
+
+    if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
+        st.subheader("High-Risk Entries by Date")
+        fig, ax = plt.subplots()
+        sns.countplot(data=st.session_state.high_risk_entries, x="Date", ax=ax)
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
+
 # Export Reports
-st.header("3. Export Reports")
+st.header("4. Export Reports")
 if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
     if st.button("Export High-Risk Entries"):
         csv = st.session_state.high_risk_entries.to_csv(index=False)
