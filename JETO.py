@@ -3,6 +3,10 @@ import pandas as pd
 import logging
 import math
 from io import StringIO
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import ttk
+import os
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -126,6 +130,84 @@ def perform_high_risk_test():
         st.error(f"Error during testing: {e}")
         logging.error(f"Error during high-risk testing: {e}")
 
+# Data Cleaner Feature
+def data_cleaner():
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+    if file_path:
+        try:
+            data = pd.read_csv(file_path)
+            required_columns = ['TransactionID', 'AccountID', 'TransactionDate', 'Debit', 'Credit']
+            missing_columns = [col for col in required_columns if col not in data.columns]
+
+            if missing_columns:
+                st.error(f"Missing columns: {', '.join(missing_columns)}")
+                return
+
+            data['Result'] = ''
+            data['Days Difference'] = ''
+            unmatched_debits = {}
+            unmatched_credits = {}
+
+            for index, row in data.iterrows():
+                account_id = str(row['AccountID']).strip()
+                dr = round(row['Debit'], 2)
+                cr = round(row['Credit'], 2)
+                transaction_id = row['TransactionID']
+                transaction_date = pd.to_datetime(row['TransactionDate']) if pd.notnull(row['TransactionDate']) else None
+
+                if dr > 0:
+                    if account_id in unmatched_credits and dr in unmatched_credits[account_id]:
+                        match_index, match_date = unmatched_credits[account_id][dr]
+                        data.at[index, 'Result'] = f'Offset with Transaction ID: {data.at[match_index, "TransactionID"]}'
+                        data.at[match_index, 'Result'] = f'Offset with Transaction ID: {transaction_id}'
+
+                        if transaction_date and match_date:
+                            days_diff = abs((transaction_date - match_date).days)
+                            data.at[index, 'Days Difference'] = f'{days_diff} days'
+                            data.at[match_index, 'Days Difference'] = f'{days_diff} days'
+                        else:
+                            data.at[index, 'Days Difference'] = 'N/A'
+                            data.at[match_index, 'Days Difference'] = 'N/A'
+
+                        del unmatched_credits[account_id][dr]
+                    else:
+                        unmatched_debits.setdefault(account_id, {}).update({dr: (index, transaction_date)})
+
+                elif cr > 0:
+                    if account_id in unmatched_debits and cr in unmatched_debits[account_id]:
+                        match_index, match_date = unmatched_debits[account_id][cr]
+                        data.at[index, 'Result'] = f'Offset with Transaction ID: {data.at[match_index, "TransactionID"]}'
+                        data.at[match_index, 'Result'] = f'Offset with Transaction ID: {transaction_id}'
+
+                        if transaction_date and match_date:
+                            days_diff = abs((transaction_date - match_date).days)
+                            data.at[index, 'Days Difference'] = f'{days_diff} days'
+                            data.at[match_index, 'Days Difference'] = f'{days_diff} days'
+                        else:
+                            data.at[index, 'Days Difference'] = 'N/A'
+                            data.at[match_index, 'Days Difference'] = 'N/A'
+
+                        del unmatched_debits[account_id][cr]
+                    else:
+                        unmatched_credits.setdefault(account_id, {}).update({cr: (index, transaction_date)})
+
+            for account, debit_entries in unmatched_debits.items():
+                for index, _ in debit_entries.values():
+                    data.at[index, 'Result'] = 'No offset'
+                    data.at[index, 'Days Difference'] = 'N/A'
+
+            for account, credit_entries in unmatched_credits.items():
+                for index, _ in credit_entries.values():
+                    data.at[index, 'Result'] = 'No offset'
+                    data.at[index, 'Days Difference'] = 'N/A'
+
+            st.session_state.processed_df = data
+            st.success("Data cleaned and processed successfully!")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+
 # Streamlit UI
 st.title("MAHx-JET - Maham for Professional Services")
 
@@ -145,7 +227,7 @@ if st.session_state.df is not None:
     st.session_state.column_mapping = {}
     for field in all_fields:
         st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
-    
+
     if st.button("Confirm Mapping"):
         missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
         if missing_fields:
@@ -178,6 +260,11 @@ if st.session_state.post_closing_var:
 
 if st.button("Run Test"):
     perform_high_risk_test()
+
+# Data Cleaner Button
+st.header("Data Cleaner")
+if st.button("Run Data Cleaner"):
+    data_cleaner()
 
 # Export Reports
 st.header("3. Export Reports")
