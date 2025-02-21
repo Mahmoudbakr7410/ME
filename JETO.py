@@ -176,7 +176,7 @@ def login():
 
     # Login box
     st.markdown("<div class='login-box'>", unsafe_allow_html=True)
-    st.image("YOUR_DIRECT_IMAGE_URL_HERE", use_column_width=True)  # Replace with your direct image URL
+    st.image("https://i.imgur.com/oHp5Psm.png", use_container_width=True)  # Replace with your direct image URL
     st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
