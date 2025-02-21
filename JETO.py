@@ -8,8 +8,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import datetime
 from fpdf import FPDF  # For PDF export
-from sklearn.ensemble import IsolationForest  # For anomaly detection
-from sklearn.cluster import KMeans  # For clustering
+from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
 
 # Set up logging
@@ -51,10 +50,8 @@ if 'year_audited' not in st.session_state:
     st.session_state.year_audited = datetime.now().year
 if 'flagged_entries_by_category' not in st.session_state:
     st.session_state.flagged_entries_by_category = {}
-if 'anomalies' not in st.session_state:  # New session state variable for AI anomalies
-    st.session_state.anomalies = None
-if 'clusters' not in st.session_state:  # New session state variable for clustering
-    st.session_state.clusters = None
+if 'pattern_recognition_results' not in st.session_state:  # New session state variable for pattern recognition
+    st.session_state.pattern_recognition_results = None
 
 # Define required and optional fields
 required_fields = [
@@ -160,50 +157,17 @@ def perform_completeness_check():
         st.error(f"Error during completeness check: {e}")
         logging.error(f"Error during completeness check: {e}")
 
-# Function to perform anomaly detection using Isolation Forest
-def detect_anomalies():
+# Function to perform data mining and pattern recognition
+def perform_pattern_recognition():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
         st.warning("No data to analyze. Please import a CSV file first.")
         return
 
     try:
-        # Select numeric columns for anomaly detection
+        # Select numeric columns for pattern recognition
         numeric_cols = st.session_state.processed_df.select_dtypes(include=[np.number]).columns
         if len(numeric_cols) == 0:
-            st.warning("No numeric columns found for anomaly detection.")
-            return
-
-        # Scale the data
-        scaler = StandardScaler()
-        scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols])
-
-        # Train Isolation Forest model
-        model = IsolationForest(contamination=0.05)  # 5% of data is considered anomalous
-        st.session_state.anomalies = model.fit_predict(scaled_data)
-
-        # Add anomaly results to the dataframe
-        st.session_state.processed_df["Anomaly"] = st.session_state.anomalies
-        st.session_state.processed_df["Anomaly"] = st.session_state.processed_df["Anomaly"].map({1: "Normal", -1: "Anomaly"})
-
-        # Display anomalies
-        st.subheader("Anomaly Detection Results")
-        st.dataframe(st.session_state.processed_df[st.session_state.processed_df["Anomaly"] == "Anomaly"])
-
-    except Exception as e:
-        st.error(f"Error during anomaly detection: {e}")
-        logging.error(f"Error during anomaly detection: {e}")
-
-# Function to perform clustering using KMeans
-def perform_clustering():
-    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to analyze. Please import a CSV file first.")
-        return
-
-    try:
-        # Select numeric columns for clustering
-        numeric_cols = st.session_state.processed_df.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols) == 0:
-            st.warning("No numeric columns found for clustering.")
+            st.warning("No numeric columns found for pattern recognition.")
             return
 
         # Scale the data
@@ -212,18 +176,34 @@ def perform_clustering():
 
         # Perform KMeans clustering
         kmeans = KMeans(n_clusters=3)  # You can adjust the number of clusters
-        st.session_state.clusters = kmeans.fit_predict(scaled_data)
+        clusters = kmeans.fit_predict(scaled_data)
 
         # Add cluster results to the dataframe
-        st.session_state.processed_df["Cluster"] = st.session_state.clusters
+        st.session_state.processed_df["Cluster"] = clusters
 
-        # Display clusters
-        st.subheader("Clustering Results")
-        st.dataframe(st.session_state.processed_df)
+        # Analyze clusters for patterns
+        cluster_summary = st.session_state.processed_df.groupby("Cluster").agg(
+            Count=("Cluster", "size"),
+            Avg_Debit=("Debit Amount (Dr)", "mean"),
+            Avg_Credit=("Credit Amount (Cr)", "mean")
+        ).reset_index()
 
+        # Store results in session state
+        st.session_state.pattern_recognition_results = cluster_summary
+
+        # Display results
+        st.subheader("Pattern Recognition Results")
+        st.dataframe(cluster_summary)
+
+        # Provide a conclusion based on the clusters
+        st.subheader("Conclusion")
+        if len(cluster_summary) > 1:
+            st.success("Pattern recognition identified distinct groups of transactions. Review the clusters for insights.")
+        else:
+            st.warning("No significant patterns were found in the data.")
     except Exception as e:
-        st.error(f"Error during clustering: {e}")
-        logging.error(f"Error during clustering: {e}")
+        st.error(f"Error during pattern recognition: {e}")
+        logging.error(f"Error during pattern recognition: {e}")
 
 # Function to export PDF report
 def export_pdf_report():
@@ -504,13 +484,10 @@ def main_app():
     if st.button("Run Completeness Check"):
         perform_completeness_check()
 
-    # AI-Driven Analytics
-    st.header("3. AI-Driven Analytics")
-    if st.button("Detect Anomalies"):
-        detect_anomalies()
-
-    if st.button("Perform Clustering"):
-        perform_clustering()
+    # Data Mining and Pattern Recognition
+    st.header("3. Data Mining and Pattern Recognition")
+    if st.button("Run Pattern Recognition"):
+        perform_pattern_recognition()
 
     # High-Risk Criteria & Testing
     st.header("4. High-Risk Criteria & Testing")
