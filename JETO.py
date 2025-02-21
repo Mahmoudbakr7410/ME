@@ -201,8 +201,7 @@ if st.session_state.processed_df is not None and not st.session_state.processed_
     st.pyplot(fig)
 
 if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
-    st.subheader("High-Risk Entries Visualization")
-    st.write("High-Risk Entries by Date")
+    st.subheader("High-Risk Entries by Date")
     fig, ax = plt.subplots()
     sns.countplot(data=st.session_state.high_risk_entries, x="Date", ax=ax)
     plt.xticks(rotation=45)
