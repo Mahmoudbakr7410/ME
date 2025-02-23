@@ -467,19 +467,71 @@ def login():
         unsafe_allow_html=True,
     )
 
-    # Login box
-    st.markdown("<div class='login-box'>", unsafe_allow_html=True)
-    st.image("https://i.postimg.cc/zDgpJh7v/cropped-oie-Nf-AWRTRKjjn-C-1.png", use_container_width=True)  # Your logo
-    st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if username == "m.elansary@maham.com" and password == "74107410":
-            st.session_state.logged_in = True
-            st.session_state.logged_in_user = username  # Store logged-in user
-            st.success("Logged in successfully!")
-        else:
-            st.error("Invalid username or password")
+    import streamlit as st
+
+# Apply custom CSS
+st.markdown("""
+    <style>
+        .login-box {
+            display: flex;
+            align-items: center;
+            flex-direction: column;
+            width: 300px;
+            margin: auto;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+            background-color: #f9f9f9;
+        }
+        .login-box img {
+            width: 50px;  /* Adjust the size of your logo */
+            position: absolute;
+            left: 10px;
+            top: 10px;
+        }
+        .login-box h2 {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 22px;
+        }
+        .login-box input {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .login-box button {
+            width: 100%;
+            background-color: #007bff;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .login-box button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# Login box
+st.markdown("<div class='login-box'>", unsafe_allow_html=True)
+st.image("https://i.postimg.cc/zDgpJh7v/cropped-oie-Nf-AWRTRKjjn-C-1.png", width=50)  # Smaller logo aligned to left
+st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
+
+username = st.text_input("Username")
+password = st.text_input("Password", type="password")
+
+if st.button("Login"):
+    if username == "m.elansary@maham.com" and password == "74107410":
+        st.session_state.logged_in = True
+        st.session_state.logged_in_user = username  # Store logged-in user
+        st.success("Logged in successfully!")
+    else:
+        st.error("Invalid username or password")
+
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Footer with developer credits
