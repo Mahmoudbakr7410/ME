@@ -547,32 +547,31 @@ logo_url = "https://i.postimg.cc/zDgpJh7v/cropped-oie-Nf-AWRTRKjjn-C-1.png"
 response = requests.get(logo_url)
 logo = Image.open(BytesIO(response.content))
 
-# Login page
-def login():
-    st.markdown(
-        """
-        <div class="login-container">
-            <div class="login-box">
-                <h2>Maham Data Analytics</h2>
-                <input type="text" id="email" placeholder="Enter your email">
-                <input type="password" id="password" placeholder="Enter your password">
-                <button onclick="login()">Login</button>
-            </div>
-        </div>
-        <div class="footer">Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>
-        """,
-        unsafe_allow_html=True,
-    )
+# Display the logo
+st.image(logo, width=200)
 
-    # Handle login logic
-    email = st.text_input("Enter your email", key="email_input")
-    password = st.text_input("Enter your password", type="password", key="password_input")
-    if st.button("Login"):
-        if email == "m.elansary@maham.com" and password == "74107410":
-            st.session_state.logged_in = True
-            st.success("Logged in successfully!")
-        else:
-            st.error("Invalid email or password")
+# Login box
+st.markdown("<div class='login-container'>", unsafe_allow_html=True)
+st.markdown("<div class='login-box'>", unsafe_allow_html=True)
+st.markdown("<h2>Maham Data Analytics</h2>", unsafe_allow_html=True)
+
+# Email and password fields
+email = st.text_input("Enter your email", key="email_input")
+password = st.text_input("Enter your password", type="password", key="password_input")
+
+# Login button
+if st.button("Login"):
+    if email == "m.elansary@maham.com" and password == "74107410":
+        st.session_state.logged_in = True
+        st.success("Logged in successfully!")
+    else:
+        st.error("Invalid email or password")
+
+st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Footer with developer credits
+st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>", unsafe_allow_html=True)
 
 # Main app
 def main_app():
