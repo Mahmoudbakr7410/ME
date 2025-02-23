@@ -148,6 +148,15 @@ def perform_completeness_check():
         # Display results
         st.dataframe(merged_df)
 
+        # Data Visualization: Discrepancy Distribution
+        st.subheader("Discrepancy Distribution")
+        fig, ax = plt.subplots()
+        ax.hist(merged_df["Discrepancy"], bins=20, color='blue', alpha=0.7)
+        ax.set_xlabel("Discrepancy")
+        ax.set_ylabel("Frequency")
+        ax.set_title("Distribution of Discrepancies")
+        st.pyplot(fig)
+
         # Flag accounts with discrepancies
         discrepancies = merged_df[abs(merged_df["Discrepancy"]) > 0.01]  # Tolerance of 0.01 for rounding errors
         if not discrepancies.empty:
@@ -180,6 +189,12 @@ def detect_seldomly_used_accounts():
         st.subheader("Seldomly Used Accounts")
         st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {st.session_state.seldomly_used_accounts_threshold} transactions.")
         st.dataframe(seldomly_used_accounts)
+
+        # Data Visualization: Seldomly Used Accounts
+        st.subheader("Seldomly Used Accounts Visualization")
+        fig = px.bar(seldomly_used_accounts, x="Account Number", y="Transaction Count", 
+                     title="Seldomly Used Accounts", labels={"Transaction Count": "Number of Transactions"})
+        st.plotly_chart(fig)
 
         # Provide a conclusion
         st.subheader("Conclusion")
@@ -228,6 +243,12 @@ def perform_pattern_recognition():
         # Display results
         st.subheader("Pattern Recognition Results")
         st.dataframe(cluster_summary)
+
+        # Data Visualization: Cluster Analysis
+        st.subheader("Cluster Analysis Visualization")
+        fig = px.scatter(st.session_state.processed_df, x="Debit Amount (Dr)", y="Credit Amount (Cr)", 
+                         color="Cluster", title="Transaction Clusters")
+        st.plotly_chart(fig)
 
         # Provide a conclusion based on the clusters
         st.subheader("Conclusion")
