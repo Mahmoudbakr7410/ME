@@ -469,7 +469,7 @@ def login():
 
     # Login box
     st.markdown("<div class='login-box'>", unsafe_allow_html=True)
-    st.image("https://res.cloudinary.com/dwtw5d4kq/image/upload/v1740139683/cropped-oie_NfAWRTRKjjnC-1_c8my9c.png", use_container_width=True)  # Your logo
+    st.image("https://i.postimg.cc/zDgpJh7v/cropped-oie-Nf-AWRTRKjjn-C-1.png", use_container_width=True)  # Your logo
     st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
