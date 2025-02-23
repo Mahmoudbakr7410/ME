@@ -50,9 +50,9 @@ if 'year_audited' not in st.session_state:
     st.session_state.year_audited = datetime.now().year
 if 'flagged_entries_by_category' not in st.session_state:
     st.session_state.flagged_entries_by_category = {}
-if 'pattern_recognition_results' not in st.session_state:  # New session state variable for pattern recognition
+if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
-if 'seldomly_used_accounts_threshold' not in st.session_state:  # New session state variable for seldomly used accounts threshold
+if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
 
 # Define required and optional fields
@@ -73,13 +73,10 @@ all_fields = required_fields + optional_fields
 
 # Function to convert data types
 def convert_data_types(df):
-    # Convert numeric fields
     numeric_fields = ["Debit Amount (Dr)", "Credit Amount (Cr)"]
     for field in numeric_fields:
         if field in df.columns:
             df[field] = pd.to_numeric(df[field], errors="coerce")
-
-    # Convert date fields
     date_fields = ["Date"]
     for field in date_fields:
         if field in df.columns:
@@ -90,7 +87,6 @@ def convert_data_types(df):
 def is_99999(value):
     try:
         value = float(value)
-        # Check if the value ends with 99999 (e.g., 999.99, 9999.99, 99999.99)
         return abs(value - round(value, 0)) >= 0.999 and abs(value - round(value, 0)) < 1.0
     except (ValueError, TypeError):
         return False
@@ -105,38 +101,25 @@ def perform_completeness_check():
         return
 
     try:
-        # Group GL data by account number and calculate total debits and credits
         gl_summary = st.session_state.processed_df.groupby("Account Number").agg(
             Total_Debits=("Debit Amount (Dr)", "sum"),
             Total_Credits=("Credit Amount (Cr)", "sum")
         ).reset_index()
-
-        # Merge GL summary with trial balance
         merged_df = pd.merge(
             st.session_state.trial_balance,
             gl_summary,
             on="Account Number",
             how="left"
         )
-
-        # Fill NaN values with 0 (in case some accounts have no transactions)
         merged_df["Total_Debits"] = merged_df["Total_Debits"].fillna(0)
         merged_df["Total_Credits"] = merged_df["Total_Credits"].fillna(0)
-
-        # Calculate expected ending balance
         merged_df["Expected_Ending_Balance"] = (
             merged_df["Opening Balance"] + merged_df["Total_Debits"] - merged_df["Total_Credits"]
         )
-
-        # Compare expected vs actual ending balance
         merged_df["Discrepancy"] = (
             merged_df["Expected_Ending_Balance"] - merged_df["Ending Balance"]
         )
-
-        # Store results in session state
         st.session_state.completeness_check_results = merged_df
-
-        # Check if discrepancies are within the allowed tolerance (5)
         max_discrepancy = merged_df["Discrepancy"].abs().max()
         if max_discrepancy <= 5:
             st.session_state.completeness_check_passed = True
@@ -144,12 +127,8 @@ def perform_completeness_check():
         else:
             st.session_state.completeness_check_passed = False
             st.warning(f"Completeness check failed! Maximum discrepancy ({max_discrepancy}) exceeds the allowed tolerance of 5.")
-
-        # Display results
         st.dataframe(merged_df)
-
-        # Flag accounts with discrepancies
-        discrepancies = merged_df[abs(merged_df["Discrepancy"]) > 0.01]  # Tolerance of 0.01 for rounding errors
+        discrepancies = merged_df[abs(merged_df["Discrepancy"]) > 0.01]
         if not discrepancies.empty:
             st.warning(f"Found {len(discrepancies)} accounts with discrepancies.")
             st.dataframe(discrepancies)
@@ -166,22 +145,13 @@ def detect_seldomly_used_accounts():
         return
 
     try:
-        # Count the frequency of each account number
         account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
         account_frequency.columns = ["Account Number", "Transaction Count"]
-
-        # Define seldomly used accounts as those with fewer than the specified threshold
         seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
-
-        # Store results in session state
         st.session_state.seldomly_used_accounts = seldomly_used_accounts
-
-        # Display results
         st.subheader("Seldomly Used Accounts")
         st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {st.session_state.seldomly_used_accounts_threshold} transactions.")
         st.dataframe(seldomly_used_accounts)
-
-        # Provide a conclusion
         st.subheader("Conclusion")
         if len(seldomly_used_accounts) > 0:
             st.warning(f"{len(seldomly_used_accounts)} accounts are seldomly used. Review these accounts for potential risks.")
@@ -198,38 +168,23 @@ def perform_pattern_recognition():
         return
 
     try:
-        # Select numeric columns for pattern recognition
         numeric_cols = st.session_state.processed_df.select_dtypes(include=[np.number]).columns
         if len(numeric_cols) == 0:
             st.warning("No numeric columns found for pattern recognition.")
             return
-
-        # Scale the data
         scaler = StandardScaler()
         scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols])
-
-        # Perform KMeans clustering
-        kmeans = KMeans(n_clusters=3)  # You can adjust the number of clusters
+        kmeans = KMeans(n_clusters=3)
         clusters = kmeans.fit_predict(scaled_data)
-
-        # Add cluster results to the dataframe
         st.session_state.processed_df["Cluster"] = clusters
-
-        # Analyze clusters for patterns
         cluster_summary = st.session_state.processed_df.groupby("Cluster").agg(
             Count=("Cluster", "size"),
             Avg_Debit=("Debit Amount (Dr)", "mean"),
             Avg_Credit=("Credit Amount (Cr)", "mean")
         ).reset_index()
-
-        # Store results in session state
         st.session_state.pattern_recognition_results = cluster_summary
-
-        # Display results
         st.subheader("Pattern Recognition Results")
         st.dataframe(cluster_summary)
-
-        # Provide a conclusion based on the clusters
         st.subheader("Conclusion")
         if len(cluster_summary) > 1:
             st.success("Pattern recognition identified distinct groups of transactions. Review the clusters for insights.")
@@ -244,35 +199,23 @@ def export_pdf_report():
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
-
-    # Add firm name
     pdf.cell(200, 10, txt="Maham for Professional Services", ln=True, align="C")
-
-    # Add audited client name and year
     pdf.cell(200, 10, txt=f"Audited Client: {st.session_state.audited_client_name}", ln=True, align="L")
     pdf.cell(200, 10, txt=f"Year Audited: {st.session_state.year_audited}", ln=True, align="L")
-
-    # Add timing and username
     pdf.cell(200, 10, txt=f"Report Generated On: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="L")
     pdf.cell(200, 10, txt=f"Generated By: {st.session_state.logged_in_user}", ln=True, align="L")
-
-    # Add completeness check conclusion
     pdf.cell(200, 10, txt="Completeness Check Conclusion:", ln=True, align="L")
     if st.session_state.completeness_check_passed:
         pdf.cell(200, 10, txt="Completeness check passed. Maximum discrepancy is within the allowed tolerance of 5.", ln=True, align="L")
     else:
         max_discrepancy = st.session_state.completeness_check_results["Discrepancy"].abs().max()
         pdf.cell(200, 10, txt=f"Completeness check failed. Maximum discrepancy ({max_discrepancy}) exceeds the allowed tolerance of 5.", ln=True, align="L")
-
-    # Add flagged entries by category
     pdf.cell(200, 10, txt="Flagged Entries by Category:", ln=True, align="L")
     pdf.set_font("Arial", size=10)
     for category, entries in st.session_state.flagged_entries_by_category.items():
         pdf.cell(200, 10, txt=f"Category: {category}", ln=True, align="L")
         for index, row in entries.iterrows():
             pdf.cell(200, 10, txt=f"Transaction ID: {row['Transaction ID']}, Date: {row['Date']}, Debit: {row['Debit Amount (Dr)']}, Credit: {row['Credit Amount (Cr)']}", ln=True, align="L")
-
-    # Save the PDF
     pdf_output = pdf.output(dest="S").encode("latin1")
     return pdf_output
 
@@ -296,11 +239,9 @@ def perform_high_risk_test():
         return
 
     try:
-        # Initialize high-risk entries
         st.session_state.high_risk_entries = pd.DataFrame()
-        st.session_state.flagged_entries_by_category = {}  # Reset flagged entries by category
+        st.session_state.flagged_entries_by_category = {}
 
-        # Check for public holiday entries
         if st.session_state.public_holidays_var:
             if "Date" in st.session_state.processed_df.columns:
                 holiday_entries = st.session_state.processed_df[st.session_state.processed_df["Date"].isin(st.session_state.public_holidays)]
@@ -310,16 +251,15 @@ def perform_high_risk_test():
                 st.error("Column 'Date' not found in the data.")
                 return
 
-        # Check for rounded numbers
         if st.session_state.rounded_var:
             def is_rounded(value, threshold):
                 try:
-                    value = float(value)  # Ensure value is numeric
+                    value = float(value)
                     if value == 0:
-                        return False  # Ignore zero values
+                        return False
                     return (value % threshold == 0) or (math.isclose(value % threshold, threshold, rel_tol=1e-6))
                 except (ValueError, TypeError):
-                    return False  # Ignore non-numeric values
+                    return False
 
             rounded_entries = st.session_state.processed_df[
                 st.session_state.processed_df["Debit Amount (Dr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold)) |
@@ -328,10 +268,8 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, rounded_entries])
             st.session_state.flagged_entries_by_category["Rounded Numbers"] = rounded_entries
 
-        # Check for unusual users
         if st.session_state.unusual_users_var:
             if "Created By" in st.session_state.processed_df.columns:
-                # Ensure authorized_users is not empty
                 if not st.session_state.authorized_users:
                     st.warning("No authorized users provided. Skipping unusual users check.")
                 else:
@@ -342,7 +280,6 @@ def perform_high_risk_test():
                 st.error("Column 'Created By' not found in the data.")
                 return
 
-        # Check for post-closing entries
         if st.session_state.post_closing_var:
             if "Date" in st.session_state.processed_df.columns:
                 if st.session_state.closing_date is None:
@@ -355,7 +292,6 @@ def perform_high_risk_test():
                 st.error("Column 'Date' not found in the data.")
                 return
 
-        # Check for entries just below authorization threshold
         if st.session_state.auth_threshold_var:
             threshold = st.session_state.auth_threshold
             below_threshold_entries = st.session_state.processed_df[
@@ -367,7 +303,6 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, below_threshold_entries])
             st.session_state.flagged_entries_by_category["Below Authorization Threshold"] = below_threshold_entries
 
-        # Check for 99999 pattern
         if st.session_state.nine_pattern_var:
             nine_pattern_entries = st.session_state.processed_df[
                 st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999) |
@@ -376,7 +311,6 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
             st.session_state.flagged_entries_by_category["99999 Pattern"] = nine_pattern_entries
 
-        # Check for suspicious keywords
         if st.session_state.keywords_var:
             if "Entry Description" in st.session_state.processed_df.columns:
                 if not st.session_state.suspicious_keywords:
@@ -393,17 +327,11 @@ def perform_high_risk_test():
                 st.error("Column 'Entry Description' not found in the data.")
                 return
 
-        # Check for seldomly used accounts
         if st.session_state.seldomly_used_accounts_var:
             if st.session_state.processed_df is not None:
-                # Count the frequency of each account number
                 account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
                 account_frequency.columns = ["Account Number", "Transaction Count"]
-
-                # Define seldomly used accounts as those with fewer than the specified threshold
                 seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
-
-                # Flag entries for seldomly used accounts
                 seldomly_used_entries = st.session_state.processed_df[
                     st.session_state.processed_df["Account Number"].isin(seldomly_used_accounts["Account Number"])
                 ]
@@ -418,9 +346,38 @@ def perform_high_risk_test():
         st.error(f"Error during testing: {e}")
         logging.error(f"Error during high-risk testing: {e}")
 
+# Function to visualize high-risk entries
+def visualize_high_risk_entries():
+    if not st.session_state.high_risk_entries.empty:
+        st.header("High-Risk Entries Visualization")
+
+        # Bar chart for counts of high-risk entries by category
+        st.subheader("Count of High-Risk Entries by Category")
+        category_counts = {category: len(entries) for category, entries in st.session_state.flagged_entries_by_category.items()}
+        fig = px.bar(x=list(category_counts.keys()), y=list(category_counts.values()), labels={"x": "Category", "y": "Count"})
+        st.plotly_chart(fig)
+
+        # Pie chart for distribution of high-risk entries
+        st.subheader("Distribution of High-Risk Entries")
+        fig = px.pie(names=list(category_counts.keys()), values=list(category_counts.values()))
+        st.plotly_chart(fig)
+
+        # Scatter plot for rounded numbers
+        if "Rounded Numbers" in st.session_state.flagged_entries_by_category:
+            st.subheader("Rounded Numbers Scatter Plot")
+            rounded_entries = st.session_state.flagged_entries_by_category["Rounded Numbers"]
+            fig = px.scatter(rounded_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)", color="Account Number")
+            st.plotly_chart(fig)
+
+        # Scatter plot for 99999 pattern
+        if "99999 Pattern" in st.session_state.flagged_entries_by_category:
+            st.subheader("99999 Pattern Scatter Plot")
+            nine_pattern_entries = st.session_state.flagged_entries_by_category["99999 Pattern"]
+            fig = px.scatter(nine_pattern_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)", color="Account Number")
+            st.plotly_chart(fig)
+
 # Authentication
 def login():
-    # Custom CSS for styling
     st.markdown(
         """
         <style>
@@ -467,18 +424,12 @@ def login():
         unsafe_allow_html=True,
     )
 
-    # Create a two-column layout for the icon and text
     col1, col2 = st.columns([1, 3])
-
-    # Place the icon in the first column
     with col1:
-        st.image("https://res.cloudinary.com/dwtw5d4kq/image/upload/v1740139683/cropped-oie_NfAWRTRKjjnC-1_c8my9c.png", width=50)  # Adjust the width as needed
-
-    # Place the text in the second column
+        st.image("https://res.cloudinary.com/dwtw5d4kq/image/upload/v1740139683/cropped-oie_NfAWRTRKjjnC-1_c8my9c.png", width=50)
     with col2:
         st.markdown("<h2 style='text-align: left;'>Maham Data Analyzer</h2>", unsafe_allow_html=True)
 
-    # Login box
     st.markdown("<div class='login-box'>", unsafe_allow_html=True)
     st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
     username = st.text_input("Username")
@@ -486,13 +437,11 @@ def login():
     if st.button("Login"):
         if username == "m.elansary@maham.com" and password == "74107410":
             st.session_state.logged_in = True
-            st.session_state.logged_in_user = username  # Store logged-in user
+            st.session_state.logged_in_user = username
             st.success("Logged in successfully!")
         else:
             st.error("Invalid username or password")
     st.markdown("</div>", unsafe_allow_html=True)
-
-    # Footer with developer credits
     st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>", unsafe_allow_html=True)
 
 # Streamlit UI
@@ -568,7 +517,7 @@ def main_app():
             public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
             st.session_state.public_holidays = []
             for date in public_holidays_input:
-                if date.strip():  # Skip empty lines
+                if date.strip():
                     try:
                         parsed_date = pd.to_datetime(date.strip(), format="%Y-%m-%d")
                         st.session_state.public_holidays.append(parsed_date)
@@ -603,11 +552,11 @@ def main_app():
 
         if st.button("Run High-Risk Test"):
             perform_high_risk_test()
+            visualize_high_risk_entries()
 
     # Export Reports
     st.header("5. Export Reports")
     if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
-        # Export PDF Report
         if st.button("Export PDF Report"):
             pdf_output = export_pdf_report()
             st.download_button(
@@ -617,7 +566,6 @@ def main_app():
                 mime="application/pdf",
             )
 
-        # Export Excel Report
         if st.button("Export Excel Report"):
             excel_output = export_excel_report()
             st.download_button(
