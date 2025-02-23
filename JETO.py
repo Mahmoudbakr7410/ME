@@ -490,17 +490,16 @@ def login():
 
     # Login box
     st.markdown("<div class='login-box'>", unsafe_allow_html=True)
-    st.image("https://res.cloudinary.com/dwtw5d4kq/image/upload/v1740139683/cropped-oie_NfAWRTRKjjnC-1_c8my9c.png", use_container_width=True)  # Your logo
-    st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    st.markdown("<h2>Maham Data Analytics</h2>", unsafe_allow_html=True)
+    email = st.text_input("Enter your email")
+    password = st.text_input("Enter your password", type="password")
     if st.button("Login"):
-        if username == "m.elansary@maham.com" and password == "74107410":
+        if email == "m.elansary@maham.com" and password == "74107410":
             st.session_state.logged_in = True
-            st.session_state.logged_in_user = username  # Store logged-in user
+            st.session_state.logged_in_user = email  # Store logged-in user
             st.success("Logged in successfully!")
         else:
-            st.error("Invalid username or password")
+            st.error("Invalid email or password")
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Footer with developer credits
