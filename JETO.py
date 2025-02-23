@@ -7,9 +7,12 @@ from io import StringIO, BytesIO
 import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import datetime
-from fpdf import FPDF  # For PDF export
-from sklearn.cluster import KMeans  # For pattern recognition
-from sklearn.preprocessing import StandardScaler  # For scaling data
+from fpdf import FPDF
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from PIL import Image
+import requests
+from io import BytesIO
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -50,9 +53,9 @@ if 'year_audited' not in st.session_state:
     st.session_state.year_audited = datetime.now().year
 if 'flagged_entries_by_category' not in st.session_state:
     st.session_state.flagged_entries_by_category = {}
-if 'pattern_recognition_results' not in st.session_state:  # New session state variable for pattern recognition
+if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
-if 'seldomly_used_accounts_threshold' not in st.session_state:  # New session state variable for seldomly used accounts threshold
+if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
 
 # Define required and optional fields
@@ -487,6 +490,14 @@ def login():
         """,
         unsafe_allow_html=True,
     )
+
+    # Load the company logo
+    logo_url = "https://i.postimg.cc/zDgpJh7v/cropped-oie-Nf-AWRTRKjjn-C-1.png"
+    response = requests.get(logo_url)
+    logo = Image.open(BytesIO(response.content))
+
+    # Display the logo
+    st.image(logo, width=200)
 
     # Login box
     st.markdown("<div class='login-box'>", unsafe_allow_html=True)
