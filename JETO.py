@@ -7,12 +7,9 @@ from io import StringIO, BytesIO
 import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import datetime
-from fpdf import FPDF
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-from PIL import Image
-import requests
-from io import BytesIO
+from fpdf import FPDF  # For PDF export
+from sklearn.cluster import KMeans  # For pattern recognition
+from sklearn.preprocessing import StandardScaler  # For scaling data
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -53,9 +50,9 @@ if 'year_audited' not in st.session_state:
     st.session_state.year_audited = datetime.now().year
 if 'flagged_entries_by_category' not in st.session_state:
     st.session_state.flagged_entries_by_category = {}
-if 'pattern_recognition_results' not in st.session_state:
+if 'pattern_recognition_results' not in st.session_state:  # New session state variable for pattern recognition
     st.session_state.pattern_recognition_results = None
-if 'seldomly_used_accounts_threshold' not in st.session_state:
+if 'seldomly_used_accounts_threshold' not in st.session_state:  # New session state variable for seldomly used accounts threshold
     st.session_state.seldomly_used_accounts_threshold = 5
 
 # Define required and optional fields
@@ -151,15 +148,6 @@ def perform_completeness_check():
         # Display results
         st.dataframe(merged_df)
 
-        # Data Visualization: Discrepancy Distribution
-        st.subheader("Discrepancy Distribution")
-        fig, ax = plt.subplots()
-        ax.hist(merged_df["Discrepancy"], bins=20, color='blue', alpha=0.7)
-        ax.set_xlabel("Discrepancy")
-        ax.set_ylabel("Frequency")
-        ax.set_title("Distribution of Discrepancies")
-        st.pyplot(fig)
-
         # Flag accounts with discrepancies
         discrepancies = merged_df[abs(merged_df["Discrepancy"]) > 0.01]  # Tolerance of 0.01 for rounding errors
         if not discrepancies.empty:
@@ -192,12 +180,6 @@ def detect_seldomly_used_accounts():
         st.subheader("Seldomly Used Accounts")
         st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {st.session_state.seldomly_used_accounts_threshold} transactions.")
         st.dataframe(seldomly_used_accounts)
-
-        # Data Visualization: Seldomly Used Accounts
-        st.subheader("Seldomly Used Accounts Visualization")
-        fig = px.bar(seldomly_used_accounts, x="Account Number", y="Transaction Count", 
-                     title="Seldomly Used Accounts", labels={"Transaction Count": "Number of Transactions"})
-        st.plotly_chart(fig)
 
         # Provide a conclusion
         st.subheader("Conclusion")
@@ -246,12 +228,6 @@ def perform_pattern_recognition():
         # Display results
         st.subheader("Pattern Recognition Results")
         st.dataframe(cluster_summary)
-
-        # Data Visualization: Cluster Analysis
-        st.subheader("Cluster Analysis Visualization")
-        fig = px.scatter(st.session_state.processed_df, x="Debit Amount (Dr)", y="Credit Amount (Cr)", 
-                         color="Cluster", title="Transaction Clusters")
-        st.plotly_chart(fig)
 
         # Provide a conclusion based on the clusters
         st.subheader("Conclusion")
@@ -442,141 +418,229 @@ def perform_high_risk_test():
         st.error(f"Error during testing: {e}")
         logging.error(f"Error during high-risk testing: {e}")
 
-# Custom CSS for a stunning login page
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
-
-    body {
-        font-family: 'Poppins', sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        margin: 0;
-        padding: 0;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-    }
-
-    .login-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        width: 100%;
-    }
-
-    .login-box {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 20px;
-        padding: 40px;
-        width: 400px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        text-align: center;
-        animation: fadeIn 1.5s ease-in-out;
-    }
-
-    .login-box h2 {
-        color: #fff;
-        font-size: 28px;
-        font-weight: 600;
-        margin-bottom: 20px;
-    }
-
-    .login-box input {
-        width: 100%;
-        padding: 12px;
-        margin: 10px 0;
-        border: none;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.2);
-        color: #fff;
-        font-size: 16px;
-        outline: none;
-    }
-
-    .login-box input::placeholder {
-        color: rgba(255, 255, 255, 0.7);
-    }
-
-    .login-box button {
-        width: 100%;
-        padding: 12px;
-        background: #667eea;
-        color: #fff;
-        border: none;
-        border-radius: 10px;
-        font-size: 16px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background 0.3s ease;
-    }
-
-    .login-box button:hover {
-        background: #764ba2;
-    }
-
-    .footer {
-        position: fixed;
-        left: 10px;
-        bottom: 10px;
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.7);
-    }
-
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
+# Authentication
+def login():
+    # Custom CSS for styling
+    st.markdown(
+        """
+        <style>
+        .login-box {
+            background-color: #f0f2f6;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            margin: auto;
         }
-        to {
-            opacity: 1;
-            transform: translateY(0);
+        .login-box h2 {
+            text-align: center;
+            color: #2c3e50;
         }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+        .login-box input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .login-box button {
+            width: 100%;
+            padding: 10px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .login-box button:hover {
+            background-color: #2980b9;
+        }
+        .footer {
+            position: fixed;
+            left: 10px;
+            bottom: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-# Load the company logo
-logo_url = "https://i.postimg.cc/zDgpJh7v/cropped-oie-Nf-AWRTRKjjn-C-1.png"
-response = requests.get(logo_url)
-logo = Image.open(BytesIO(response.content))
+    # Login box
+    st.markdown("<div class='login-box'>", unsafe_allow_html=True)
+    st.image("https://res.cloudinary.com/dwtw5d4kq/image/upload/v1740139683/cropped-oie_NfAWRTRKjjnC-1_c8my9c.png", use_container_width=True)  # Your logo
+    st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if username == "m.elansary@maham.com" and password == "74107410":
+            st.session_state.logged_in = True
+            st.session_state.logged_in_user = username  # Store logged-in user
+            st.success("Logged in successfully!")
+        else:
+            st.error("Invalid username or password")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# Display the logo
-st.image(logo, width=200)
+    # Footer with developer credits
+    st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>", unsafe_allow_html=True)
 
-# Login box
-st.markdown("<div class='login-container'>", unsafe_allow_html=True)
-st.markdown("<div class='login-box'>", unsafe_allow_html=True)
-st.markdown("<h2>Maham Data Analytics</h2>", unsafe_allow_html=True)
-
-# Email and password fields
-email = st.text_input("Enter your email", key="email_input")
-password = st.text_input("Enter your password", type="password", key="password_input")
-
-# Login button
-if st.button("Login"):
-    if email == "m.elansary@maham.com" and password == "74107410":
-        st.session_state.logged_in = True
-        st.success("Logged in successfully!")
-    else:
-        st.error("Invalid email or password")
-
-st.markdown("</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
-
-# Footer with developer credits
-st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>", unsafe_allow_html=True)
-
-# Main app
+# Streamlit UI
 def main_app():
     st.title("MAHx-JET - Maham for Professional Services")
-    st.write("Welcome to the main application!")
+
+    # Data Import & Processing
+    st.header("1. Data Import & Processing")
+    uploaded_file = st.file_uploader("Import GL Dump CSV", type=["csv"])
+    if uploaded_file is not None:
+        try:
+            st.session_state.df = pd.read_csv(uploaded_file)
+            st.success("GL Dump CSV file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import file: {e}")
+            logging.error(f"Failed to import file: {e}")
+
+    # Import Trial Balance
+    st.subheader("Import Trial Balance")
+    tb_uploaded_file = st.file_uploader("Import Trial Balance CSV", type=["csv"])
+    if tb_uploaded_file is not None:
+        try:
+            st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
+            st.success("Trial Balance CSV file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import trial balance file: {e}")
+            logging.error(f"Failed to import trial balance file: {e}")
+
+    # Input audited client name and year
+    st.session_state.audited_client_name = st.text_input("Enter Audited Client Name:", value=st.session_state.audited_client_name)
+    st.session_state.year_audited = st.number_input("Enter Year Audited:", value=st.session_state.year_audited)
+
+    if st.session_state.df is not None:
+        st.subheader("Map Columns")
+        st.session_state.column_mapping = {}
+        for field in all_fields:
+            st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
+        
+        if st.button("Confirm Mapping"):
+            missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
+            if missing_fields:
+                st.error(f"Missing required fields: {missing_fields}")
+            else:
+                st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
+                st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
+                st.success("Columns mapped successfully!")
+
+    # Completeness Check
+    st.header("2. Completeness Check")
+    if st.button("Run Completeness Check"):
+        perform_completeness_check()
+
+    # Data Mining and Pattern Recognition
+    st.header("3. Data Mining and Pattern Recognition")
+    if st.button("Run Pattern Recognition"):
+        perform_pattern_recognition()
+
+    # High-Risk Criteria & Testing
+    st.header("4. High-Risk Criteria & Testing")
+    if not st.session_state.completeness_check_passed:
+        st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
+    else:
+        st.session_state.public_holidays_var = st.checkbox("Public Holidays")
+        st.session_state.rounded_var = st.checkbox("Rounded Numbers")
+        st.session_state.unusual_users_var = st.checkbox("Unusual Users")
+        st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
+        st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
+        st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
+        st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
+        st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
+
+        if st.session_state.public_holidays_var:
+            public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
+            st.session_state.public_holidays = []
+            for date in public_holidays_input:
+                if date.strip():  # Skip empty lines
+                    try:
+                        parsed_date = pd.to_datetime(date.strip(), format="%Y-%m-%d")
+                        st.session_state.public_holidays.append(parsed_date)
+                    except ValueError:
+                        st.error(f"Invalid date format: {date.strip()}. Please use the format YYYY-MM-DD.")
+
+        if st.session_state.rounded_var:
+            st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
+
+        if st.session_state.unusual_users_var:
+            st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
+            st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
+
+        if st.session_state.post_closing_var:
+            st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
+
+        if st.session_state.auth_threshold_var:
+            st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
+
+        if st.session_state.keywords_var:
+            st.session_state.suspicious_keywords = st.text_area(
+                "Enter Suspicious Keywords (comma-separated):",
+                "miscellaneous, adjustment, correction, other, rounding"
+            ).strip().split(",")
+            st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
+
+        if st.session_state.seldomly_used_accounts_var:
+            st.session_state.seldomly_used_accounts_threshold = st.number_input(
+                "Enter Threshold for Seldomly Used Accounts (minimum number of transactions):",
+                value=5, min_value=1
+            )
+
+        if st.button("Run High-Risk Test"):
+            perform_high_risk_test()
+
+    # Export Reports
+    st.header("5. Export Reports")
+    if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
+        # Export PDF Report
+        if st.button("Export PDF Report"):
+            pdf_output = export_pdf_report()
+            st.download_button(
+                label="Download PDF Report",
+                data=pdf_output,
+                file_name="audit_report.pdf",
+                mime="application/pdf",
+            )
+
+        # Export Excel Report
+        if st.button("Export Excel Report"):
+            excel_output = export_excel_report()
+            st.download_button(
+                label="Download Excel Report",
+                data=excel_output,
+                file_name="flagged_entries.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+    # Guide
+    st.sidebar.header("Guide")
+    st.sidebar.markdown("""
+    **Journal Entry Testing Guide**
+
+    The following fields are required for testing:
+    - Transaction ID
+    - Date
+    - Debit Amount (Dr)
+    - Credit Amount (Cr)
+    - Account Number
+
+    **Steps:**
+    1. Import a CSV file containing the required fields.
+    2. Map the CSV columns to the required fields.
+    3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
+    4. Run the test to identify high-risk entries.
+    5. Export the results to a CSV file.
+    """)
+
+    # Preview Data
+    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
+        st.header("Preview Data")
+        st.dataframe(st.session_state.processed_df.head(10))
 
 # Check if user is logged in
 if not st.session_state.logged_in:
