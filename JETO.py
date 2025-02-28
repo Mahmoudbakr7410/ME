@@ -697,7 +697,7 @@ def main_app():
     - **Unusual Accounts Payable Entry**: Flags entries where accounts payable is debited, but the credit is not cash.
 
     **Mapping Requirements for Advanced Criteria:**
-    - Ensure "Account Name" is mapped correctly.
+    - Ensure "Account Name" is mapped correctly for revenue to work properly the words "Cash" and "Accounts receivable" should be present
     - The code will automatically identify revenue and payables based on common account names.
     """)
 
