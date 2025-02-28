@@ -61,12 +61,6 @@ if 'unusual_revenue_var' not in st.session_state:
     st.session_state.unusual_revenue_var = False
 if 'unusual_payable_var' not in st.session_state:
     st.session_state.unusual_payable_var = False
-if 'cash_account_number' not in st.session_state:
-    st.session_state.cash_account_number = ""
-if 'receivable_account_number' not in st.session_state:
-    st.session_state.receivable_account_number = ""
-if 'payable_account_number' not in st.session_state:
-    st.session_state.payable_account_number = ""
 
 # Define required and optional fields
 required_fields = [
@@ -371,34 +365,41 @@ def perform_high_risk_test():
 
         # Unusual Revenue Entry
         if st.session_state.unusual_revenue_var:
-            if "Account Number" in st.session_state.processed_df.columns:
-                if not st.session_state.cash_account_number or not st.session_state.receivable_account_number:
-                    st.warning("Cash and Receivable account numbers are required for unusual revenue entry check.")
-                else:
-                    revenue_entries = st.session_state.processed_df[
+            if "Account Name" in st.session_state.processed_df.columns:
+                # List of possible revenue account names
+                revenue_keywords = ["revenue", "sales", "income", "turnover"]
+                revenue_accounts = st.session_state.processed_df[
+                    st.session_state.processed_df["Account Name"].str.contains("|".join(revenue_keywords), case=False, na=False)
+                ]
+                if not revenue_accounts.empty:
+                    unusual_revenue_entries = st.session_state.processed_df[
                         (st.session_state.processed_df["Credit Amount (Cr)"] > 0) &
-                        (~st.session_state.processed_df["Account Number"].isin([st.session_state.cash_account_number, st.session_state.receivable_account_number]))
+                        (st.session_state.processed_df["Account Name"].isin(revenue_accounts["Account Name"])) &
+                        (~st.session_state.processed_df["Account Name"].str.contains("cash|receivable", case=False))
                     ]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, revenue_entries])
-                    st.session_state.flagged_entries_by_category["Unusual Revenue Entry"] = revenue_entries
+                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, unusual_revenue_entries])
+                    st.session_state.flagged_entries_by_category["Unusual Revenue Entry"] = unusual_revenue_entries
             else:
-                st.error("Column 'Account Number' not found in the data.")
+                st.warning("Column 'Account Name' not found. Skipping unusual revenue entry check.")
 
         # Unusual Accounts Payable Entry
         if st.session_state.unusual_payable_var:
-            if "Account Number" in st.session_state.processed_df.columns:
-                if not st.session_state.cash_account_number or not st.session_state.payable_account_number:
-                    st.warning("Cash and Payable account numbers are required for unusual accounts payable entry check.")
-                else:
-                    payable_entries = st.session_state.processed_df[
+            if "Account Name" in st.session_state.processed_df.columns:
+                # List of possible accounts payable names
+                payable_keywords = ["payable", "creditor", "vendor"]
+                payable_accounts = st.session_state.processed_df[
+                    st.session_state.processed_df["Account Name"].str.contains("|".join(payable_keywords), case=False, na=False)
+                ]
+                if not payable_accounts.empty:
+                    unusual_payable_entries = st.session_state.processed_df[
                         (st.session_state.processed_df["Debit Amount (Dr)"] > 0) &
-                        (st.session_state.processed_df["Account Number"] == st.session_state.payable_account_number) &
-                        (~st.session_state.processed_df["Account Number"].isin([st.session_state.cash_account_number]))
+                        (st.session_state.processed_df["Account Name"].isin(payable_accounts["Account Name"])) &
+                        (~st.session_state.processed_df["Account Name"].str.contains("cash", case=False))
                     ]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, payable_entries])
-                    st.session_state.flagged_entries_by_category["Unusual Accounts Payable Entry"] = payable_entries
+                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, unusual_payable_entries])
+                    st.session_state.flagged_entries_by_category["Unusual Accounts Payable Entry"] = unusual_payable_entries
             else:
-                st.error("Column 'Account Number' not found in the data.")
+                st.warning("Column 'Account Name' not found. Skipping unusual accounts payable entry check.")
 
         if not st.session_state.high_risk_entries.empty:
             st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
@@ -647,13 +648,6 @@ def main_app():
                 value=7, min_value=1
             )
 
-        if st.session_state.unusual_revenue_var:
-            st.session_state.cash_account_number = st.text_input("Enter Cash Account Number:")
-            st.session_state.receivable_account_number = st.text_input("Enter Accounts Receivable Account Number:")
-
-        if st.session_state.unusual_payable_var:
-            st.session_state.payable_account_number = st.text_input("Enter Accounts Payable Account Number:")
-
         if st.button("Run High-Risk Test"):
             perform_high_risk_test()
             visualize_high_risk_entries()
@@ -703,9 +697,8 @@ def main_app():
     - **Unusual Accounts Payable Entry**: Flags entries where accounts payable is debited, but the credit is not cash.
 
     **Mapping Requirements for Advanced Criteria:**
-    - Ensure "Account Number" is mapped correctly.
-    - For unusual revenue entries, provide the **Cash Account Number** and **Accounts Receivable Account Number**.
-    - For unusual accounts payable entries, provide the **Cash Account Number** and **Accounts Payable Account Number**.
+    - Ensure "Account Name" is mapped correctly.
+    - The code will automatically identify revenue and payables based on common account names.
     """)
 
     # Preview Data
