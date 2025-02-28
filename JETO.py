@@ -55,6 +55,8 @@ if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
 if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
+if 'day_lag_threshold' not in st.session_state:
+    st.session_state.day_lag_threshold = 7  # Default threshold for day lag
 
 # Define required and optional fields
 required_fields = [
@@ -78,7 +80,7 @@ def convert_data_types(df):
     for field in numeric_fields:
         if field in df.columns:
             df[field] = pd.to_numeric(df[field], errors="coerce")
-    date_fields = ["Date"]
+    date_fields = ["Date", "Posting Date"]
     for field in date_fields:
         if field in df.columns:
             df[field] = pd.to_datetime(df[field], errors="coerce")
@@ -339,6 +341,16 @@ def perform_high_risk_test():
                 st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
                 st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries
 
+        # Day Laps or Lag High-Risk Criterion
+        if st.session_state.day_lag_var:
+            if "Date" in st.session_state.processed_df.columns and "Posting Date" in st.session_state.processed_df.columns:
+                st.session_state.processed_df["Day Lag"] = (st.session_state.processed_df["Posting Date"] - st.session_state.processed_df["Date"]).dt.days
+                day_lag_entries = st.session_state.processed_df[st.session_state.processed_df["Day Lag"] > st.session_state.day_lag_threshold]
+                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, day_lag_entries])
+                st.session_state.flagged_entries_by_category["Day Lag"] = day_lag_entries
+            else:
+                st.error("Columns 'Date' and 'Posting Date' are required for day lag analysis.")
+
         if not st.session_state.high_risk_entries.empty:
             st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
         else:
@@ -539,6 +551,7 @@ def main_app():
         st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
         st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
         st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
+        st.session_state.day_lag_var = st.checkbox("Day Laps or Lag")
 
         if st.session_state.public_holidays_var:
             public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
@@ -575,6 +588,12 @@ def main_app():
             st.session_state.seldomly_used_accounts_threshold = st.number_input(
                 "Enter Threshold for Seldomly Used Accounts (minimum number of transactions):",
                 value=5, min_value=1
+            )
+
+        if st.session_state.day_lag_var:
+            st.session_state.day_lag_threshold = st.number_input(
+                "Enter Threshold for Day Lag (maximum allowed days between creation and posting):",
+                value=7, min_value=1
             )
 
         if st.button("Run High-Risk Test"):
