@@ -57,16 +57,20 @@ if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
 if 'day_lag_threshold' not in st.session_state:
     st.session_state.day_lag_threshold = 7  # Default threshold for day lag
+if 'unusual_revenue_var' not in st.session_state:
+    st.session_state.unusual_revenue_var = False
+if 'unusual_payable_var' not in st.session_state:
+    st.session_state.unusual_payable_var = False
 
 # Define required and optional fields
 required_fields = [
-    "Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)", "Account Number"
+    "Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)", "Account Number", "Account Name"
 ]
 
 optional_fields = [
     "Journal Entry ID", "Posting Date", "Entry Description", "Document Number",
-    "Period/Month", "Year", "Entry Type", "Reversal Indicator", "Account Name",
-    "Account Type", "Cost Center", "Subledger Type", "Subledger ID", "Currency", "Local Currency Amount",
+    "Period/Month", "Year", "Entry Type", "Reversal Indicator", "Account Type",
+    "Cost Center", "Subledger Type", "Subledger ID", "Currency", "Local Currency Amount",
     "Exchange Rate", "Net Amount", "Created By", "Approved By", "Posting User", "Approval Date",
     "Journal Source", "Manual Entry Flag", "High-Risk Account Flag", "Suspense Account Flag",
     "Offsetting Entry Indicator", "Period-End Flag", "Weekend/Holiday Flag", "Round Number Flag"
@@ -245,6 +249,7 @@ def perform_high_risk_test():
         st.session_state.high_risk_entries = pd.DataFrame()
         st.session_state.flagged_entries_by_category = {}
 
+        # Public Holidays
         if st.session_state.public_holidays_var:
             if "Date" in st.session_state.processed_df.columns:
                 holiday_entries = st.session_state.processed_df[st.session_state.processed_df["Date"].isin(st.session_state.public_holidays)]
@@ -254,6 +259,7 @@ def perform_high_risk_test():
                 st.error("Column 'Date' not found in the data.")
                 return
 
+        # Rounded Numbers
         if st.session_state.rounded_var:
             def is_rounded(value, threshold):
                 try:
@@ -271,6 +277,7 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, rounded_entries])
             st.session_state.flagged_entries_by_category["Rounded Numbers"] = rounded_entries
 
+        # Unusual Users
         if st.session_state.unusual_users_var:
             if "Created By" in st.session_state.processed_df.columns:
                 if not st.session_state.authorized_users:
@@ -283,6 +290,7 @@ def perform_high_risk_test():
                 st.error("Column 'Created By' not found in the data.")
                 return
 
+        # Post-Closing Entries
         if st.session_state.post_closing_var:
             if "Date" in st.session_state.processed_df.columns:
                 if st.session_state.closing_date is None:
@@ -295,6 +303,7 @@ def perform_high_risk_test():
                 st.error("Column 'Date' not found in the data.")
                 return
 
+        # Below Authorization Threshold
         if st.session_state.auth_threshold_var:
             threshold = st.session_state.auth_threshold
             below_threshold_entries = st.session_state.processed_df[
@@ -306,6 +315,7 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, below_threshold_entries])
             st.session_state.flagged_entries_by_category["Below Authorization Threshold"] = below_threshold_entries
 
+        # 99999 Pattern
         if st.session_state.nine_pattern_var:
             nine_pattern_entries = st.session_state.processed_df[
                 st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999) |
@@ -314,6 +324,7 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
             st.session_state.flagged_entries_by_category["99999 Pattern"] = nine_pattern_entries
 
+        # Suspicious Keywords
         if st.session_state.keywords_var:
             if "Entry Description" in st.session_state.processed_df.columns:
                 if not st.session_state.suspicious_keywords:
@@ -330,6 +341,7 @@ def perform_high_risk_test():
                 st.error("Column 'Entry Description' not found in the data.")
                 return
 
+        # Seldomly Used Accounts
         if st.session_state.seldomly_used_accounts_var:
             if st.session_state.processed_df is not None:
                 account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
@@ -341,7 +353,7 @@ def perform_high_risk_test():
                 st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
                 st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries
 
-        # Day Laps or Lag High-Risk Criterion
+        # Day Lag
         if st.session_state.day_lag_var:
             if "Date" in st.session_state.processed_df.columns and "Posting Date" in st.session_state.processed_df.columns:
                 st.session_state.processed_df["Day Lag"] = (st.session_state.processed_df["Posting Date"] - st.session_state.processed_df["Date"]).dt.days
@@ -350,6 +362,32 @@ def perform_high_risk_test():
                 st.session_state.flagged_entries_by_category["Day Lag"] = day_lag_entries
             else:
                 st.error("Columns 'Date' and 'Posting Date' are required for day lag analysis.")
+
+        # Unusual Revenue Entry
+        if st.session_state.unusual_revenue_var:
+            if "Account Name" in st.session_state.processed_df.columns:
+                revenue_entries = st.session_state.processed_df[
+                    (st.session_state.processed_df["Account Name"].str.contains("revenue", case=False)) &
+                    (st.session_state.processed_df["Credit Amount (Cr)"] > 0) &
+                    (~st.session_state.processed_df["Account Name"].str.contains("cash|accounts receivable", case=False))
+                ]
+                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, revenue_entries])
+                st.session_state.flagged_entries_by_category["Unusual Revenue Entry"] = revenue_entries
+            else:
+                st.error("Column 'Account Name' not found in the data.")
+
+        # Unusual Accounts Payable Entry
+        if st.session_state.unusual_payable_var:
+            if "Account Name" in st.session_state.processed_df.columns:
+                payable_entries = st.session_state.processed_df[
+                    (st.session_state.processed_df["Account Name"].str.contains("accounts payable", case=False)) &
+                    (st.session_state.processed_df["Debit Amount (Dr)"] > 0) &
+                    (~st.session_state.processed_df["Account Name"].str.contains("cash", case=False))
+                ]
+                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, payable_entries])
+                st.session_state.flagged_entries_by_category["Unusual Accounts Payable Entry"] = payable_entries
+            else:
+                st.error("Column 'Account Name' not found in the data.")
 
         if not st.session_state.high_risk_entries.empty:
             st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
@@ -552,6 +590,8 @@ def main_app():
         st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
         st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
         st.session_state.day_lag_var = st.checkbox("Day Laps or Lag")
+        st.session_state.unusual_revenue_var = st.checkbox("Unusual Revenue Entry")
+        st.session_state.unusual_payable_var = st.checkbox("Unusual Accounts Payable Entry")
 
         if st.session_state.public_holidays_var:
             public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
@@ -632,6 +672,7 @@ def main_app():
     - Debit Amount (Dr)
     - Credit Amount (Cr)
     - Account Number
+    - Account Name
 
     **Steps:**
     1. Import a file containing the required fields.
@@ -639,6 +680,15 @@ def main_app():
     3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
     4. Run the test to identify high-risk entries.
     5. Export the results to a file.
+
+    **Advanced Criteria:**
+    - **Unusual Revenue Entry**: Flags entries where revenue is credited, but the debit is neither cash nor accounts receivable.
+    - **Unusual Accounts Payable Entry**: Flags entries where accounts payable is debited, but the credit is not cash.
+
+    **Mapping Requirements for Advanced Criteria:**
+    - Ensure "Account Name" is mapped correctly.
+    - For revenue entries, ensure "revenue" is included in the account name.
+    - For accounts payable entries, ensure "accounts payable" is included in the account name.
     """)
 
     # Preview Data
