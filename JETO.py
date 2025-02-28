@@ -10,6 +10,7 @@ from datetime import datetime
 from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
+from pyxlsb import open_workbook  # For reading .xlsb files
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -450,7 +451,7 @@ def main_app():
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
-    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "xlsx", "txt"])
+    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "xlsx", "xlsb", "txt"])
     if uploaded_file is not None:
         try:
             if uploaded_file.name.endswith('.csv'):
@@ -459,6 +460,13 @@ def main_app():
                 st.session_state.df = pd.concat(chunks, ignore_index=True)
             elif uploaded_file.name.endswith('.xlsx'):
                 st.session_state.df = pd.read_excel(uploaded_file)
+            elif uploaded_file.name.endswith('.xlsb'):
+                with open_workbook(uploaded_file) as wb:
+                    with wb.get_sheet(1) as sheet:
+                        data = []
+                        for row in sheet.rows():
+                            data.append([item.v for item in row])
+                        st.session_state.df = pd.DataFrame(data[1:], columns=data[0])
             elif uploaded_file.name.endswith('.txt'):
                 st.session_state.df = pd.read_csv(uploaded_file, delimiter='\t')
             st.success("File imported successfully!")
@@ -468,13 +476,20 @@ def main_app():
 
     # Import Trial Balance
     st.subheader("Import Trial Balance")
-    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "xlsx", "txt"])
+    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "xlsx", "xlsb", "txt"])
     if tb_uploaded_file is not None:
         try:
             if tb_uploaded_file.name.endswith('.csv'):
                 st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
             elif tb_uploaded_file.name.endswith('.xlsx'):
                 st.session_state.trial_balance = pd.read_excel(tb_uploaded_file)
+            elif tb_uploaded_file.name.endswith('.xlsb'):
+                with open_workbook(tb_uploaded_file) as wb:
+                    with wb.get_sheet(1) as sheet:
+                        data = []
+                        for row in sheet.rows():
+                            data.append([item.v for item in row])
+                        st.session_state.trial_balance = pd.DataFrame(data[1:], columns=data[0])
             elif tb_uploaded_file.name.endswith('.txt'):
                 st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter='\t')
             st.success("Trial Balance file imported successfully!")
