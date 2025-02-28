@@ -11,3 +11,4 @@ fpdf
 xlsxwriter
 scikit-learn
 openpyxl
+pyxlsb
