@@ -230,8 +230,43 @@ def export_pdf_report():
 def export_excel_report():
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        # Create a summary sheet
+        summary_data = []
         for category, entries in st.session_state.flagged_entries_by_category.items():
+            summary_data.append({
+                "Category": category,
+                "Count": len(entries)
+            })
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+
+        # Create a detailed sheet for each category
+        for category, entries in st.session_state.flagged_entries_by_category.items():
+            # Add an "Audit Comment" column
+            entries["Audit Comment"] = ""
+            # Add a "Flagged Criteria" column
+            entries["Flagged Criteria"] = category
+            # Reorder columns for better readability
+            columns = ["Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)", "Account Number", "Account Name", "Entry Description", "Flagged Criteria", "Audit Comment"]
+            entries = entries[columns]
             entries.to_excel(writer, sheet_name=category, index=False)
+
+        # Format the Excel file
+        workbook = writer.book
+        header_format = workbook.add_format({
+            "bold": True,
+            "text_wrap": True,
+            "valign": "top",
+            "fg_color": "#4F81BD",
+            "font_color": "#FFFFFF",
+            "border": 1
+        })
+        for sheet_name in writer.sheets:
+            worksheet = writer.sheets[sheet_name]
+            worksheet.set_column("A:Z", 20)  # Set column width
+            for col_num, value in enumerate(entries.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+
     output.seek(0)
     return output
 
@@ -697,7 +732,7 @@ def main_app():
     - **Unusual Accounts Payable Entry**: Flags entries where accounts payable is debited, but the credit is not cash.
 
     **Mapping Requirements for Advanced Criteria:**
-    - Ensure "Account Name" is mapped correctly for revenue to work properly the words "Cash" and "Accounts receivable" should be present
+    - Ensure "Account Name" is mapped correctly.
     - The code will automatically identify revenue and payables based on common account names.
     """)
 
