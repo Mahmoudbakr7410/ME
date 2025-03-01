@@ -580,12 +580,17 @@ def main_app():
     st.sidebar.markdown("""
     **Journal Entry Testing Guide**
 
-    The following fields are required for testing:
+    The following fields are GL required for testing:
     - Transaction ID
     - Date
     - Debit Amount (Dr)
     - Credit Amount (Cr)
     - Account Number
+
+    The following fields are TB required for testing:
+    - Account Number
+    - Opening Balance
+    - Ending Balance
 
     **Steps:**
     1. Import a CSV file containing the required fields.
