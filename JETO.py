@@ -520,7 +520,7 @@ def login():
 
 # Streamlit UI
 def main_app():
-    st.title("Journal entries testing DEMO")
+    st.title("MAHAM DATA DEEP ANALYZER DEMO")
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
