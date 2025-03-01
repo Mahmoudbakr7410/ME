@@ -10,7 +10,6 @@ from datetime import datetime
 from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
-from pyxlsb import open_workbook  # For reading .xlsb files
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -55,12 +54,6 @@ if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
 if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
-if 'day_lag_threshold' not in st.session_state:
-    st.session_state.day_lag_threshold = 7  # Default threshold for day lag
-if 'unusual_revenue_var' not in st.session_state:
-    st.session_state.unusual_revenue_var = False
-if 'unusual_payable_var' not in st.session_state:
-    st.session_state.unusual_payable_var = False
 
 # Define required and optional fields
 required_fields = [
@@ -84,7 +77,7 @@ def convert_data_types(df):
     for field in numeric_fields:
         if field in df.columns:
             df[field] = pd.to_numeric(df[field], errors="coerce")
-    date_fields = ["Date", "Posting Date"]
+    date_fields = ["Date"]
     for field in date_fields:
         if field in df.columns:
             df[field] = pd.to_datetime(df[field], errors="coerce")
@@ -101,10 +94,10 @@ def is_99999(value):
 # Function to perform completeness check
 def perform_completeness_check():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No GL data to test. Please import a file first.")
+        st.warning("No GL data to test. Please import a CSV file first.")
         return
     if st.session_state.trial_balance is None or st.session_state.trial_balance.empty:
-        st.warning("No trial balance data to test. Please import a trial balance file first.")
+        st.warning("No trial balance data to test. Please import a trial balance CSV file first.")
         return
 
     try:
@@ -148,7 +141,7 @@ def perform_completeness_check():
 # Function to detect seldomly used accounts
 def detect_seldomly_used_accounts():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to analyze. Please import a file first.")
+        st.warning("No data to analyze. Please import a CSV file first.")
         return
 
     try:
@@ -171,7 +164,7 @@ def detect_seldomly_used_accounts():
 # Function to perform data mining and pattern recognition
 def perform_pattern_recognition():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to analyze. Please import a file first.")
+        st.warning("No data to analyze. Please import a CSV file first.")
         return
 
     try:
@@ -230,43 +223,8 @@ def export_pdf_report():
 def export_excel_report():
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        # Create a summary sheet
-        summary_data = []
         for category, entries in st.session_state.flagged_entries_by_category.items():
-            summary_data.append({
-                "Category": category,
-                "Count": len(entries)
-            })
-        summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name="Summary", index=False)
-
-        # Create a detailed sheet for each category
-        for category, entries in st.session_state.flagged_entries_by_category.items():
-            # Add an "Audit Comment" column
-            entries["Audit Comment"] = ""
-            # Add a "Flagged Criteria" column
-            entries["Flagged Criteria"] = category
-            # Reorder columns for better readability
-            columns = ["Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)", "Account Number", "Account Name", "Entry Description", "Flagged Criteria", "Audit Comment"]
-            entries = entries[columns]
             entries.to_excel(writer, sheet_name=category, index=False)
-
-        # Format the Excel file
-        workbook = writer.book
-        header_format = workbook.add_format({
-            "bold": True,
-            "text_wrap": True,
-            "valign": "top",
-            "fg_color": "#4F81BD",
-            "font_color": "#FFFFFF",
-            "border": 1
-        })
-        for sheet_name in writer.sheets:
-            worksheet = writer.sheets[sheet_name]
-            worksheet.set_column("A:Z", 20)  # Set column width
-            for col_num, value in enumerate(entries.columns.values):
-                worksheet.write(0, col_num, value, header_format)
-
     output.seek(0)
     return output
 
@@ -277,14 +235,13 @@ def perform_high_risk_test():
         return
 
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to test. Please import a file first.")
+        st.warning("No data to test. Please import a CSV file first.")
         return
 
     try:
         st.session_state.high_risk_entries = pd.DataFrame()
         st.session_state.flagged_entries_by_category = {}
 
-        # Public Holidays
         if st.session_state.public_holidays_var:
             if "Date" in st.session_state.processed_df.columns:
                 holiday_entries = st.session_state.processed_df[st.session_state.processed_df["Date"].isin(st.session_state.public_holidays)]
@@ -294,7 +251,6 @@ def perform_high_risk_test():
                 st.error("Column 'Date' not found in the data.")
                 return
 
-        # Rounded Numbers
         if st.session_state.rounded_var:
             def is_rounded(value, threshold):
                 try:
@@ -312,7 +268,6 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, rounded_entries])
             st.session_state.flagged_entries_by_category["Rounded Numbers"] = rounded_entries
 
-        # Unusual Users
         if st.session_state.unusual_users_var:
             if "Created By" in st.session_state.processed_df.columns:
                 if not st.session_state.authorized_users:
@@ -325,7 +280,6 @@ def perform_high_risk_test():
                 st.error("Column 'Created By' not found in the data.")
                 return
 
-        # Post-Closing Entries
         if st.session_state.post_closing_var:
             if "Date" in st.session_state.processed_df.columns:
                 if st.session_state.closing_date is None:
@@ -338,7 +292,6 @@ def perform_high_risk_test():
                 st.error("Column 'Date' not found in the data.")
                 return
 
-        # Below Authorization Threshold
         if st.session_state.auth_threshold_var:
             threshold = st.session_state.auth_threshold
             below_threshold_entries = st.session_state.processed_df[
@@ -350,7 +303,6 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, below_threshold_entries])
             st.session_state.flagged_entries_by_category["Below Authorization Threshold"] = below_threshold_entries
 
-        # 99999 Pattern
         if st.session_state.nine_pattern_var:
             nine_pattern_entries = st.session_state.processed_df[
                 st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999) |
@@ -359,7 +311,6 @@ def perform_high_risk_test():
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
             st.session_state.flagged_entries_by_category["99999 Pattern"] = nine_pattern_entries
 
-        # Suspicious Keywords
         if st.session_state.keywords_var:
             if "Entry Description" in st.session_state.processed_df.columns:
                 if not st.session_state.suspicious_keywords:
@@ -376,7 +327,6 @@ def perform_high_risk_test():
                 st.error("Column 'Entry Description' not found in the data.")
                 return
 
-        # Seldomly Used Accounts
         if st.session_state.seldomly_used_accounts_var:
             if st.session_state.processed_df is not None:
                 account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
@@ -387,54 +337,6 @@ def perform_high_risk_test():
                 ]
                 st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
                 st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries
-
-        # Day Lag
-        if st.session_state.day_lag_var:
-            if "Date" in st.session_state.processed_df.columns and "Posting Date" in st.session_state.processed_df.columns:
-                st.session_state.processed_df["Day Lag"] = (st.session_state.processed_df["Posting Date"] - st.session_state.processed_df["Date"]).dt.days
-                day_lag_entries = st.session_state.processed_df[st.session_state.processed_df["Day Lag"] > st.session_state.day_lag_threshold]
-                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, day_lag_entries])
-                st.session_state.flagged_entries_by_category["Day Lag"] = day_lag_entries
-            else:
-                st.error("Columns 'Date' and 'Posting Date' are required for day lag analysis.")
-
-        # Unusual Revenue Entry
-        if st.session_state.unusual_revenue_var:
-            if "Account Name" in st.session_state.processed_df.columns:
-                # List of possible revenue account names
-                revenue_keywords = ["revenue", "sales", "income", "turnover"]
-                revenue_accounts = st.session_state.processed_df[
-                    st.session_state.processed_df["Account Name"].str.contains("|".join(revenue_keywords), case=False, na=False)
-                ]
-                if not revenue_accounts.empty:
-                    unusual_revenue_entries = st.session_state.processed_df[
-                        (st.session_state.processed_df["Credit Amount (Cr)"] > 0) &
-                        (st.session_state.processed_df["Account Name"].isin(revenue_accounts["Account Name"])) &
-                        (~st.session_state.processed_df["Account Name"].str.contains("cash|receivable", case=False))
-                    ]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, unusual_revenue_entries])
-                    st.session_state.flagged_entries_by_category["Unusual Revenue Entry"] = unusual_revenue_entries
-            else:
-                st.warning("Column 'Account Name' not found. Skipping unusual revenue entry check.")
-
-        # Unusual Accounts Payable Entry
-        if st.session_state.unusual_payable_var:
-            if "Account Name" in st.session_state.processed_df.columns:
-                # List of possible accounts payable names
-                payable_keywords = ["payable", "creditor", "vendor"]
-                payable_accounts = st.session_state.processed_df[
-                    st.session_state.processed_df["Account Name"].str.contains("|".join(payable_keywords), case=False, na=False)
-                ]
-                if not payable_accounts.empty:
-                    unusual_payable_entries = st.session_state.processed_df[
-                        (st.session_state.processed_df["Debit Amount (Dr)"] > 0) &
-                        (st.session_state.processed_df["Account Name"].isin(payable_accounts["Account Name"])) &
-                        (~st.session_state.processed_df["Account Name"].str.contains("cash", case=False))
-                    ]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, unusual_payable_entries])
-                    st.session_state.flagged_entries_by_category["Unusual Accounts Payable Entry"] = unusual_payable_entries
-            else:
-                st.warning("Column 'Account Name' not found. Skipping unusual accounts payable entry check.")
 
         if not st.session_state.high_risk_entries.empty:
             st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
@@ -548,48 +450,22 @@ def main_app():
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
-    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "xlsx", "xlsb", "txt"])
+    uploaded_file = st.file_uploader("Import GL Dump CSV", type=["csv"])
     if uploaded_file is not None:
         try:
-            if uploaded_file.name.endswith('.csv'):
-                # Read CSV in chunks for large files
-                chunks = pd.read_csv(uploaded_file, chunksize=100000)
-                st.session_state.df = pd.concat(chunks, ignore_index=True)
-            elif uploaded_file.name.endswith('.xlsx'):
-                st.session_state.df = pd.read_excel(uploaded_file)
-            elif uploaded_file.name.endswith('.xlsb'):
-                with open_workbook(uploaded_file) as wb:
-                    with wb.get_sheet(1) as sheet:
-                        data = []
-                        for row in sheet.rows():
-                            data.append([item.v for item in row])
-                        st.session_state.df = pd.DataFrame(data[1:], columns=data[0])
-            elif uploaded_file.name.endswith('.txt'):
-                st.session_state.df = pd.read_csv(uploaded_file, delimiter='\t')
-            st.success("File imported successfully!")
+            st.session_state.df = pd.read_csv(uploaded_file)
+            st.success("GL Dump CSV file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import file: {e}")
             logging.error(f"Failed to import file: {e}")
 
     # Import Trial Balance
     st.subheader("Import Trial Balance")
-    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "xlsx", "xlsb", "txt"])
+    tb_uploaded_file = st.file_uploader("Import Trial Balance CSV", type=["csv"])
     if tb_uploaded_file is not None:
         try:
-            if tb_uploaded_file.name.endswith('.csv'):
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
-            elif tb_uploaded_file.name.endswith('.xlsx'):
-                st.session_state.trial_balance = pd.read_excel(tb_uploaded_file)
-            elif tb_uploaded_file.name.endswith('.xlsb'):
-                with open_workbook(tb_uploaded_file) as wb:
-                    with wb.get_sheet(1) as sheet:
-                        data = []
-                        for row in sheet.rows():
-                            data.append([item.v for item in row])
-                        st.session_state.trial_balance = pd.DataFrame(data[1:], columns=data[0])
-            elif tb_uploaded_file.name.endswith('.txt'):
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter='\t')
-            st.success("Trial Balance file imported successfully!")
+            st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
+            st.success("Trial Balance CSV file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import trial balance file: {e}")
             logging.error(f"Failed to import trial balance file: {e}")
@@ -636,9 +512,6 @@ def main_app():
         st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
         st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
         st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
-        st.session_state.day_lag_var = st.checkbox("Day Laps or Lag")
-        st.session_state.unusual_revenue_var = st.checkbox("Unusual Revenue Entry")
-        st.session_state.unusual_payable_var = st.checkbox("Unusual Accounts Payable Entry")
 
         if st.session_state.public_holidays_var:
             public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
@@ -675,12 +548,6 @@ def main_app():
             st.session_state.seldomly_used_accounts_threshold = st.number_input(
                 "Enter Threshold for Seldomly Used Accounts (minimum number of transactions):",
                 value=5, min_value=1
-            )
-
-        if st.session_state.day_lag_var:
-            st.session_state.day_lag_threshold = st.number_input(
-                "Enter Threshold for Day Lag (maximum allowed days between creation and posting):",
-                value=7, min_value=1
             )
 
         if st.button("Run High-Risk Test"):
@@ -721,19 +588,11 @@ def main_app():
     - Account Number
 
     **Steps:**
-    1. Import a file containing the required fields.
-    2. Map the columns to the required fields.
+    1. Import a CSV file containing the required fields.
+    2. Map the CSV columns to the required fields.
     3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
     4. Run the test to identify high-risk entries.
-    5. Export the results to a file.
-
-    **Advanced Criteria:**
-    - **Unusual Revenue Entry**: Flags entries where revenue is credited, but the debit is neither cash nor accounts receivable.
-    - **Unusual Accounts Payable Entry**: Flags entries where accounts payable is debited, but the credit is not cash.
-
-    **Mapping Requirements for Advanced Criteria:**
-    - Ensure "Account Name" is mapped correctly.
-    - The code will automatically identify revenue and payables based on common account names.
+    5. Export the results to a CSV file.
     """)
 
     # Preview Data
