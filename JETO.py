@@ -520,7 +520,7 @@ def login():
 
 # Streamlit UI
 def main_app():
-    st.title("MAHx-JET - Maham for Professional Services")
+    st.title("JET DEMO Maham for Professional Services")
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
