@@ -55,6 +55,80 @@ if 'pattern_recognition_results' not in st.session_state:
 if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
 
+# Define authorized users
+authorized_users = {
+    "a.habbul@maham.com": "password1",
+    "a.elnahal@maham.com": "password2",
+    "a.younes@maham.com": "password3",
+    "a.alhazmi@maham.com": "password4",
+    "a.almousa@maham.com": "password5",
+    "a.alqadi@maham.com": "password6",
+    "a.alqahtani@maham.com": "password7",
+    "a.alrubayan@maham.com": "password8",
+    "a.alamodi@maham.com": "password9",
+    "a.alremawi@maham.com": "password10",
+    "a.abdelgawad@maham.com": "password11",
+    "a.alwhaibi@maham.com": "password12",
+    "a.elnouby@maham.com": "password13",
+    "a.goma@maham.com": "password14",
+    "a.magdi@maham.com": "password15",
+    "a.nagy@maham.com": "password16",
+    "a.basith@maham.com": "password17",
+    "a.alali@maham.com": "password18",
+    "a.arafat@maham.com": "password19",
+    "a.shedeed@maham.com": "password20",
+    "a.salem@maham.com": "password21",
+    "a.khan@maham.com": "password22",
+    "E.Alshehri@maham.com": "password23",
+    "f.alkaltham@maham.com": "password24",
+    "f.alanazi@maham.com": "password25",
+    "f.muhammad@maham.com": "password26",
+    "I.abdulwahab@maham.com": "password27",
+    "i.alabdullah@maham.com": "password28",
+    "i.alotaibi@maham.com": "password29",
+    "i.metwally@maham.com": "password30",
+    "j.rizkallah@maham.com": "password31",
+    "kh.almatroudi@maham.com": "password32",
+    "l.Alrizqi@maham.com": "password33",
+    "l.altuwaim@maham.com": "password34",
+    "m.abead@maham.com": "password35",
+    "m.abdelrahim@maham.com": "password36",
+    "m.elansary@maham.com": "74107410",
+    "m.hamouda@maham.com": "password37",
+    "m.mostafa@maham.com": "password38",
+    "m.noman@maham.com": "password39",
+    "m.erman@maham.com": "password40",
+    "m.alqattan@maham.com": "password41",
+    "m.alrashidi@maham.com": "password42",
+    "M.Alshammari@maham.com": "password43",
+    "m.bilal@maham.com": "password44",
+    "m.zain@maham.com": "password45",
+    "m.alangari@maham.com": "password46",
+    "m.attia@maham.com": "password47",
+    "m.Thafseem@maham.com": "password48",
+    "m.masood@maham.com": "password49",
+    "m.Alshehri@maham.com": "password50",
+    "n.adham@maham.com": "password51",
+    "n.alsayeh@maham.com": "password52",
+    "n.sabhah@maham.com": "password53",
+    "o.almatrudi@maham.com": "password54",
+    "r.alabdulhadi@maham.com": "password55",
+    "r.alhamidi@maham.com": "password56",
+    "r.aljebali@maham.com": "password57",
+    "s.uddin@maham.com": "password58",
+    "s.alharbi@maham.com": "password59",
+    "s.salih@maham.com": "password60",
+    "s.ahmed@maham.com": "password61",
+    "s.alqadi@maham.com": "password62",
+    "s.lashaera@maham.com": "password63",
+    "sh.alanazi@maham.com": "password64",
+    "s.alhalal@maham.com": "password65",
+    "t.alhassan@maham.com": "password66",
+    "u.riaz@maham.com": "password67",
+    "w.alanazi@maham.com": "password68",
+    "y.alahmadi@maham.com": "password69"
+}
+
 # Define required and optional fields
 required_fields = [
     "Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)", "Account Number"
@@ -435,7 +509,7 @@ def login():
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        if username == "m.elansary@maham.com" and password == "74107410":
+        if username in authorized_users and authorized_users[username] == password:
             st.session_state.logged_in = True
             st.session_state.logged_in_user = username
             st.success("Logged in successfully!")
