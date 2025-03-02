@@ -54,6 +54,10 @@ if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
 if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
+if 'user_activity' not in st.session_state:
+    st.session_state.user_activity = []
+if 'admin_user' not in st.session_state:
+    st.session_state.admin_user = "m.elansary@maham.com"
 
 # Define authorized users
 authorized_users = {
@@ -745,35 +749,15 @@ def main_app():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
-    # Guide
-    st.sidebar.header("Guide")
-    st.sidebar.markdown("""
-    **Journal Entry Testing Guide**
+    # Admin Section
+    if st.session_state.logged_in_user == st.session_state.admin_user:
+        st.header("Admin Section")
+        st.subheader("User Activity Log")
+        st.write(st.session_state.user_activity)
 
-    The following fields are GL required for testing:
-    - Transaction ID
-    - Date
-    - Debit Amount (Dr)
-    - Credit Amount (Cr)
-    - Account Number
-
-    The following fields are TB required for testing:
-    - Account Number
-    - Opening Balance
-    - Ending Balance
-
-    **Steps:**
-    1. Import a CSV file containing the required fields.
-    2. Map the CSV columns to the required fields.
-    3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
-    4. Run the test to identify high-risk entries.
-    5. Export the results to a CSV file.
-    """)
-
-    # Preview Data
-    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-        st.header("Preview Data")
-        st.dataframe(st.session_state.processed_df.head(10))
+        st.subheader("Online Users")
+        online_users = [user for user in st.session_state.user_activity if user["status"] == "online"]
+        st.write(online_users)
 
 # Check if user is logged in
 if not st.session_state.logged_in:
