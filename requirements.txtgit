@@ -360,7 +360,16 @@ def perform_high_risk_test():
                 if st.session_state.closing_date is None:
                     st.warning("No closing date provided. Skipping post-closing entries check.")
                 else:
-                    post_closing_entries = st.session_state.processed_df[st.session_state.processed_df["Date"] > st.session_state.closing_date]
+                    # Convert closing_date to datetime64[ns]
+                    closing_date = pd.to_datetime(st.session_state.closing_date)
+                    # Ensure the Date column is datetime64[ns]
+                    st.session_state.processed_df["Date"] = pd.to_datetime(st.session_state.processed_df["Date"])
+                    # Restrict post_closing_date to be after the audited year's December 31
+                    audited_year_end = pd.to_datetime(f"{st.session_state.year_audited}-12-31")
+                    if closing_date <= audited_year_end:
+                        st.error("Closing date must be after the audited year's December 31.")
+                        return
+                    post_closing_entries = st.session_state.processed_df[st.session_state.processed_df["Date"] > closing_date]
                     st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, post_closing_entries])
                     st.session_state.flagged_entries_by_category["Post-Closing Entries"] = post_closing_entries
             else:
