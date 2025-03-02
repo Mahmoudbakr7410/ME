@@ -126,7 +126,7 @@ authorized_users = {
     "t.alhassan@maham.com": "password66",
     "u.riaz@maham.com": "password67",
     "w.alanazi@maham.com": "password68",
-    "s.habib@maham.com": "Internalaudit@2025",
+    "s.habib@maham.com": "internalaudit@2025",
     "y.alahmadi@maham.com": "password69"
 }
 
