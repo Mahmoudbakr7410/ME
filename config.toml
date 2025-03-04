@@ -1,0 +1,4 @@
+[general]
+email = ""
+[server]
+maxUploadSize = 500
