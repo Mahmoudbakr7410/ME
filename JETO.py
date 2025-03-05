@@ -10,6 +10,7 @@ from datetime import datetime
 from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
+import csv  # For delimiter detection
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -145,6 +146,14 @@ optional_fields = [
 ]
 
 all_fields = required_fields + optional_fields
+
+# Function to detect delimiter for txt files
+def detect_delimiter(file):
+    sample = file.read(1024).decode('utf-8')
+    file.seek(0)
+    sniffer = csv.Sniffer()
+    delimiter = sniffer.sniff(sample).delimiter
+    return delimiter
 
 # Function to convert data types
 def convert_data_types(df):
@@ -306,7 +315,7 @@ def export_excel_report():
 # Function to perform high-risk testing
 def perform_high_risk_test():
     if not st.session_state.completeness_check_passed:
-        st.warning("Completeness check has not passed. Please ensure the completeness check is successful before running high-risk tests.")
+        st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
         return
 
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
@@ -542,7 +551,8 @@ def main_app():
             elif uploaded_file.name.endswith('.parquet'):
                 st.session_state.df = pd.read_parquet(uploaded_file)
             elif uploaded_file.name.endswith('.txt'):
-                st.session_state.df = pd.read_csv(uploaded_file, delimiter='\t')
+                delimiter = detect_delimiter(uploaded_file)
+                st.session_state.df = pd.read_csv(uploaded_file, delimiter=delimiter)
             st.success("GL Dump file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import file: {e}")
@@ -558,7 +568,8 @@ def main_app():
             elif tb_uploaded_file.name.endswith('.parquet'):
                 st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
             elif tb_uploaded_file.name.endswith('.txt'):
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter='\t')
+                delimiter = detect_delimiter(tb_uploaded_file)
+                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter=delimiter)
             st.success("Trial Balance file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import trial balance file: {e}")
