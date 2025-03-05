@@ -169,10 +169,10 @@ def is_99999(value):
 # Function to perform completeness check
 def perform_completeness_check():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No GL data to test. Please import a CSV file first.")
+        st.warning("No GL data to test. Please import a file first.")
         return
     if st.session_state.trial_balance is None or st.session_state.trial_balance.empty:
-        st.warning("No trial balance data to test. Please import a trial balance CSV file first.")
+        st.warning("No trial balance data to test. Please import a trial balance file first.")
         return
 
     try:
@@ -216,7 +216,7 @@ def perform_completeness_check():
 # Function to detect seldomly used accounts
 def detect_seldomly_used_accounts():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to analyze. Please import a CSV file first.")
+        st.warning("No data to analyze. Please import a file first.")
         return
 
     try:
@@ -239,7 +239,7 @@ def detect_seldomly_used_accounts():
 # Function to perform data mining and pattern recognition
 def perform_pattern_recognition():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to analyze. Please import a CSV file first.")
+        st.warning("No data to analyze. Please import a file first.")
         return
 
     try:
@@ -310,7 +310,7 @@ def perform_high_risk_test():
         return
 
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
-        st.warning("No data to test. Please import a CSV file first.")
+        st.warning("No data to test. Please import a file first.")
         return
 
     try:
@@ -534,22 +534,32 @@ def main_app():
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
-    uploaded_file = st.file_uploader("Import GL Dump CSV", type=["csv"])
+    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt"])
     if uploaded_file is not None:
         try:
-            st.session_state.df = pd.read_csv(uploaded_file)
-            st.success("GL Dump CSV file imported successfully!")
+            if uploaded_file.name.endswith('.csv'):
+                st.session_state.df = pd.read_csv(uploaded_file)
+            elif uploaded_file.name.endswith('.parquet'):
+                st.session_state.df = pd.read_parquet(uploaded_file)
+            elif uploaded_file.name.endswith('.txt'):
+                st.session_state.df = pd.read_csv(uploaded_file, delimiter='\t')
+            st.success("GL Dump file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import file: {e}")
             logging.error(f"Failed to import file: {e}")
 
     # Import Trial Balance
     st.subheader("Import Trial Balance")
-    tb_uploaded_file = st.file_uploader("Import Trial Balance CSV", type=["csv"])
+    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt"])
     if tb_uploaded_file is not None:
         try:
-            st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
-            st.success("Trial Balance CSV file imported successfully!")
+            if tb_uploaded_file.name.endswith('.csv'):
+                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
+            elif tb_uploaded_file.name.endswith('.parquet'):
+                st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
+            elif tb_uploaded_file.name.endswith('.txt'):
+                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter='\t')
+            st.success("Trial Balance file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import trial balance file: {e}")
             logging.error(f"Failed to import trial balance file: {e}")
