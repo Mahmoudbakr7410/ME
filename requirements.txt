@@ -12,3 +12,4 @@ xlsxwriter
 scikit-learn
 openpyxl
 pyxlsb
+dask
