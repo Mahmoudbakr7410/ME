@@ -11,6 +11,8 @@ from fpdf import FPDF
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import csv
+import tempfile
+import os
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -546,34 +548,56 @@ def main_app():
     uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt"])
     if uploaded_file is not None:
         try:
+            # Save the uploaded file to a temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_file_path = tmp_file.name
+
+            # Read the file using Dask
             if uploaded_file.name.endswith('.csv'):
-                st.session_state.df = dd.read_csv(uploaded_file)
+                st.session_state.df = dd.read_csv(tmp_file_path)
             elif uploaded_file.name.endswith('.parquet'):
-                st.session_state.df = dd.read_parquet(uploaded_file)
+                st.session_state.df = dd.read_parquet(tmp_file_path)
             elif uploaded_file.name.endswith('.txt'):
                 delimiter = detect_delimiter(uploaded_file)
-                st.session_state.df = dd.read_csv(uploaded_file, delimiter=delimiter)
+                st.session_state.df = dd.read_csv(tmp_file_path, delimiter=delimiter)
+
             st.success("GL Dump file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import file: {e}")
             logging.error(f"Failed to import file: {e}")
+        finally:
+            # Clean up the temporary file
+            if 'tmp_file_path' in locals():
+                os.unlink(tmp_file_path)
 
     # Import Trial Balance
     st.subheader("Import Trial Balance")
     tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt"])
     if tb_uploaded_file is not None:
         try:
+            # Save the uploaded file to a temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(tb_uploaded_file.name)[1]) as tmp_file:
+                tmp_file.write(tb_uploaded_file.getvalue())
+                tmp_file_path = tmp_file.name
+
+            # Read the file using Dask
             if tb_uploaded_file.name.endswith('.csv'):
-                st.session_state.trial_balance = dd.read_csv(tb_uploaded_file)
+                st.session_state.trial_balance = dd.read_csv(tmp_file_path)
             elif tb_uploaded_file.name.endswith('.parquet'):
-                st.session_state.trial_balance = dd.read_parquet(tb_uploaded_file)
+                st.session_state.trial_balance = dd.read_parquet(tmp_file_path)
             elif tb_uploaded_file.name.endswith('.txt'):
                 delimiter = detect_delimiter(tb_uploaded_file)
-                st.session_state.trial_balance = dd.read_csv(tb_uploaded_file, delimiter=delimiter)
+                st.session_state.trial_balance = dd.read_csv(tmp_file_path, delimiter=delimiter)
+
             st.success("Trial Balance file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import trial balance file: {e}")
             logging.error(f"Failed to import trial balance file: {e}")
+        finally:
+            # Clean up the temporary file
+            if 'tmp_file_path' in locals():
+                os.unlink(tmp_file_path)
 
     # Input audited client name and year
     st.session_state.audited_client_name = st.text_input("Enter Audited Client Name:", value=st.session_state.audited_client_name)
