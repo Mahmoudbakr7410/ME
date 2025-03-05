@@ -1,4 +1,4 @@
 [server]
-maxUploadSize = 5000  # Set the upload limit to 500MB
+maxUploadSize = 5000  # Set the upload limit to 5000MB
 [theme]
 base = "dark"
