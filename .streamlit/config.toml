@@ -4,3 +4,5 @@ maxUploadSize = 5000  # Set the upload limit to 5000MB
 base = "dark"
 [global]
 cache = true
+[server]
+sessionStateTimeout = 1800
