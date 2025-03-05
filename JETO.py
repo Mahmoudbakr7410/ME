@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import dask.dataframe as dd
 import numpy as np
 import logging
 import math
@@ -7,10 +7,10 @@ from io import StringIO, BytesIO
 import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import datetime
-from fpdf import FPDF  # For PDF export
-from sklearn.cluster import KMeans  # For pattern recognition
-from sklearn.preprocessing import StandardScaler  # For scaling data
-import csv  # For delimiter detection
+from fpdf import FPDF
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+import csv
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -160,11 +160,11 @@ def convert_data_types(df):
     numeric_fields = ["Debit Amount (Dr)", "Credit Amount (Cr)"]
     for field in numeric_fields:
         if field in df.columns:
-            df[field] = pd.to_numeric(df[field], errors="coerce")
+            df[field] = df[field].astype('float32')
     date_fields = ["Date"]
     for field in date_fields:
         if field in df.columns:
-            df[field] = pd.to_datetime(df[field], errors="coerce")
+            df[field] = dd.to_datetime(df[field], errors="coerce")
     return df
 
 # Function to check for 99999 pattern
@@ -189,7 +189,7 @@ def perform_completeness_check():
             Total_Debits=("Debit Amount (Dr)", "sum"),
             Total_Credits=("Credit Amount (Cr)", "sum")
         ).reset_index()
-        merged_df = pd.merge(
+        merged_df = dd.merge(
             st.session_state.trial_balance,
             gl_summary,
             on="Account Number",
@@ -203,16 +203,16 @@ def perform_completeness_check():
         merged_df["Discrepancy"] = (
             merged_df["Expected_Ending_Balance"] - merged_df["Ending Balance"]
         )
-        st.session_state.completeness_check_results = merged_df
-        max_discrepancy = merged_df["Discrepancy"].abs().max()
+        st.session_state.completeness_check_results = merged_df.compute()
+        max_discrepancy = merged_df["Discrepancy"].abs().max().compute()
         if max_discrepancy <= 5:
             st.session_state.completeness_check_passed = True
             st.success("Completeness check passed! Maximum discrepancy is within the allowed tolerance of 5.")
         else:
             st.session_state.completeness_check_passed = False
             st.warning(f"Completeness check failed! Maximum discrepancy ({max_discrepancy}) exceeds the allowed tolerance of 5.")
-        st.dataframe(merged_df)
-        discrepancies = merged_df[abs(merged_df["Discrepancy"]) > 0.01]
+        st.dataframe(merged_df.compute())
+        discrepancies = merged_df[abs(merged_df["Discrepancy"]) > 0.01].compute()
         if not discrepancies.empty:
             st.warning(f"Found {len(discrepancies)} accounts with discrepancies.")
             st.dataframe(discrepancies)
@@ -232,10 +232,10 @@ def detect_seldomly_used_accounts():
         account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
         account_frequency.columns = ["Account Number", "Transaction Count"]
         seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
-        st.session_state.seldomly_used_accounts = seldomly_used_accounts
+        st.session_state.seldomly_used_accounts = seldomly_used_accounts.compute()
         st.subheader("Seldomly Used Accounts")
         st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {st.session_state.seldomly_used_accounts_threshold} transactions.")
-        st.dataframe(seldomly_used_accounts)
+        st.dataframe(seldomly_used_accounts.compute())
         st.subheader("Conclusion")
         if len(seldomly_used_accounts) > 0:
             st.warning(f"{len(seldomly_used_accounts)} accounts are seldomly used. Review these accounts for potential risks.")
@@ -257,18 +257,18 @@ def perform_pattern_recognition():
             st.warning("No numeric columns found for pattern recognition.")
             return
         scaler = StandardScaler()
-        scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols])
+        scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols].compute())
         kmeans = KMeans(n_clusters=3)
         clusters = kmeans.fit_predict(scaled_data)
-        st.session_state.processed_df["Cluster"] = clusters
+        st.session_state.processed_df["Cluster"] = dd.from_array(clusters)
         cluster_summary = st.session_state.processed_df.groupby("Cluster").agg(
             Count=("Cluster", "size"),
             Avg_Debit=("Debit Amount (Dr)", "mean"),
             Avg_Credit=("Credit Amount (Cr)", "mean")
         ).reset_index()
-        st.session_state.pattern_recognition_results = cluster_summary
+        st.session_state.pattern_recognition_results = cluster_summary.compute()
         st.subheader("Pattern Recognition Results")
-        st.dataframe(cluster_summary)
+        st.dataframe(cluster_summary.compute())
         st.subheader("Conclusion")
         if len(cluster_summary) > 1:
             st.success("Pattern recognition identified distinct groups of transactions. Review the clusters for insights.")
@@ -323,14 +323,14 @@ def perform_high_risk_test():
         return
 
     try:
-        st.session_state.high_risk_entries = pd.DataFrame()
+        st.session_state.high_risk_entries = dd.DataFrame()
         st.session_state.flagged_entries_by_category = {}
 
         if st.session_state.public_holidays_var:
             if "Date" in st.session_state.processed_df.columns:
                 holiday_entries = st.session_state.processed_df[st.session_state.processed_df["Date"].isin(st.session_state.public_holidays)]
-                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, holiday_entries])
-                st.session_state.flagged_entries_by_category["Public Holidays"] = holiday_entries
+                st.session_state.high_risk_entries = dd.concat([st.session_state.high_risk_entries, holiday_entries])
+                st.session_state.flagged_entries_by_category["Public Holidays"] = holiday_entries.compute()
             else:
                 st.error("Column 'Date' not found in the data.")
                 return
@@ -346,11 +346,11 @@ def perform_high_risk_test():
                     return False
 
             rounded_entries = st.session_state.processed_df[
-                st.session_state.processed_df["Debit Amount (Dr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold)) |
-                st.session_state.processed_df["Credit Amount (Cr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold))
+                st.session_state.processed_df["Debit Amount (Dr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold), meta=('Debit Amount (Dr)', 'bool')) |
+                st.session_state.processed_df["Credit Amount (Cr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold), meta=('Credit Amount (Cr)', 'bool'))
             ]
-            st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, rounded_entries])
-            st.session_state.flagged_entries_by_category["Rounded Numbers"] = rounded_entries
+            st.session_state.high_risk_entries = dd.concat([st.session_state.high_risk_entries, rounded_entries])
+            st.session_state.flagged_entries_by_category["Rounded Numbers"] = rounded_entries.compute()
 
         if st.session_state.unusual_users_var:
             if "Created By" in st.session_state.processed_df.columns:
@@ -358,8 +358,8 @@ def perform_high_risk_test():
                     st.warning("No authorized users provided. Skipping unusual users check.")
                 else:
                     unusual_user_entries = st.session_state.processed_df[~st.session_state.processed_df["Created By"].isin(st.session_state.authorized_users)]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, unusual_user_entries])
-                    st.session_state.flagged_entries_by_category["Unauthorized Users"] = unusual_user_entries
+                    st.session_state.high_risk_entries = dd.concat([st.session_state.high_risk_entries, unusual_user_entries])
+                    st.session_state.flagged_entries_by_category["Unauthorized Users"] = unusual_user_entries.compute()
             else:
                 st.error("Column 'Created By' not found in the data.")
                 return
@@ -372,15 +372,15 @@ def perform_high_risk_test():
                     # Convert closing_date to datetime64[ns]
                     closing_date = pd.to_datetime(st.session_state.closing_date)
                     # Ensure the Date column is datetime64[ns]
-                    st.session_state.processed_df["Date"] = pd.to_datetime(st.session_state.processed_df["Date"])
+                    st.session_state.processed_df["Date"] = dd.to_datetime(st.session_state.processed_df["Date"])
                     # Restrict post_closing_date to be after the audited year's December 31
                     audited_year_end = pd.to_datetime(f"{st.session_state.year_audited}-12-31")
                     if closing_date <= audited_year_end:
                         st.error("Closing date must be after the audited year's December 31.")
                         return
                     post_closing_entries = st.session_state.processed_df[st.session_state.processed_df["Date"] > closing_date]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, post_closing_entries])
-                    st.session_state.flagged_entries_by_category["Post-Closing Entries"] = post_closing_entries
+                    st.session_state.high_risk_entries = dd.concat([st.session_state.high_risk_entries, post_closing_entries])
+                    st.session_state.flagged_entries_by_category["Post-Closing Entries"] = post_closing_entries.compute()
             else:
                 st.error("Column 'Date' not found in the data.")
                 return
@@ -393,16 +393,16 @@ def perform_high_risk_test():
                 (st.session_state.processed_df["Credit Amount (Cr)"] >= threshold * 0.9) & 
                 (st.session_state.processed_df["Credit Amount (Cr)"] < threshold)
             ]
-            st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, below_threshold_entries])
-            st.session_state.flagged_entries_by_category["Below Authorization Threshold"] = below_threshold_entries
+            st.session_state.high_risk_entries = dd.concat([st.session_state.high_risk_entries, below_threshold_entries])
+            st.session_state.flagged_entries_by_category["Below Authorization Threshold"] = below_threshold_entries.compute()
 
         if st.session_state.nine_pattern_var:
             nine_pattern_entries = st.session_state.processed_df[
-                st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999) |
-                st.session_state.processed_df["Credit Amount (Cr)"].apply(is_99999)
+                st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999, meta=('Debit Amount (Dr)', 'bool')) |
+                st.session_state.processed_df["Credit Amount (Cr)"].apply(is_99999, meta=('Credit Amount (Cr)', 'bool'))
             ]
-            st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
-            st.session_state.flagged_entries_by_category["99999 Pattern"] = nine_pattern_entries
+            st.session_state.high_risk_entries = dd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
+            st.session_state.flagged_entries_by_category["99999 Pattern"] = nine_pattern_entries.compute()
 
         if st.session_state.keywords_var:
             if "Entry Description" in st.session_state.processed_df.columns:
@@ -414,8 +414,8 @@ def perform_high_risk_test():
                             "|".join(st.session_state.suspicious_keywords), case=False, na=False
                         )
                     ]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, keyword_entries])
-                    st.session_state.flagged_entries_by_category["Suspicious Keywords"] = keyword_entries
+                    st.session_state.high_risk_entries = dd.concat([st.session_state.high_risk_entries, keyword_entries])
+                    st.session_state.flagged_entries_by_category["Suspicious Keywords"] = keyword_entries.compute()
             else:
                 st.error("Column 'Entry Description' not found in the data.")
                 return
@@ -428,11 +428,11 @@ def perform_high_risk_test():
                 seldomly_used_entries = st.session_state.processed_df[
                     st.session_state.processed_df["Account Number"].isin(seldomly_used_accounts["Account Number"])
                 ]
-                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
-                st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries
+                st.session_state.high_risk_entries = dd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
+                st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries.compute()
 
         if not st.session_state.high_risk_entries.empty:
-            st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
+            st.success(f"Found {len(st.session_state.high_risk_entries.compute())} high-risk entries.")
         else:
             st.success("No high-risk entries found.")
     except Exception as e:
@@ -547,12 +547,12 @@ def main_app():
     if uploaded_file is not None:
         try:
             if uploaded_file.name.endswith('.csv'):
-                st.session_state.df = pd.read_csv(uploaded_file)
+                st.session_state.df = dd.read_csv(uploaded_file)
             elif uploaded_file.name.endswith('.parquet'):
-                st.session_state.df = pd.read_parquet(uploaded_file)
+                st.session_state.df = dd.read_parquet(uploaded_file)
             elif uploaded_file.name.endswith('.txt'):
                 delimiter = detect_delimiter(uploaded_file)
-                st.session_state.df = pd.read_csv(uploaded_file, delimiter=delimiter)
+                st.session_state.df = dd.read_csv(uploaded_file, delimiter=delimiter)
             st.success("GL Dump file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import file: {e}")
@@ -564,12 +564,12 @@ def main_app():
     if tb_uploaded_file is not None:
         try:
             if tb_uploaded_file.name.endswith('.csv'):
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
+                st.session_state.trial_balance = dd.read_csv(tb_uploaded_file)
             elif tb_uploaded_file.name.endswith('.parquet'):
-                st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
+                st.session_state.trial_balance = dd.read_parquet(tb_uploaded_file)
             elif tb_uploaded_file.name.endswith('.txt'):
                 delimiter = detect_delimiter(tb_uploaded_file)
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter=delimiter)
+                st.session_state.trial_balance = dd.read_csv(tb_uploaded_file, delimiter=delimiter)
             st.success("Trial Balance file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import trial balance file: {e}")
@@ -708,7 +708,7 @@ def main_app():
     # Preview Data
     if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
         st.header("Preview Data")
-        st.dataframe(st.session_state.processed_df.head(10))
+        st.dataframe(st.session_state.processed_df.head(10).compute())
 
 # Check if user is logged in
 if not st.session_state.logged_in:
