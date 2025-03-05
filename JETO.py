@@ -533,32 +533,26 @@ def main_app():
     st.title("MAHAM DATA DEEP ANALYZER DEMO")
 
     # Data Import & Processing
-st.header("1. Data Import & Processing")
-uploaded_file = st.file_uploader("Import GL Dump CSV or Parquet", type=["csv", "parquet"])
-if uploaded_file is not None:
-    try:
-        if uploaded_file.name.endswith('.csv'):
+    st.header("1. Data Import & Processing")
+    uploaded_file = st.file_uploader("Import GL Dump CSV", type=["csv"])
+    if uploaded_file is not None:
+        try:
             st.session_state.df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith('.parquet'):
-            st.session_state.df = pd.read_parquet(uploaded_file)
-        st.success("File imported successfully!")
-    except Exception as e:
-        st.error(f"Failed to import file: {e}")
-        logging.error(f"Failed to import file: {e}")
+            st.success("GL Dump CSV file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import file: {e}")
+            logging.error(f"Failed to import file: {e}")
 
-# Import Trial Balance
-st.subheader("Import Trial Balance")
-tb_uploaded_file = st.file_uploader("Import Trial Balance CSV or Parquet", type=["csv", "parquet"])
-if tb_uploaded_file is not None:
-    try:
-        if tb_uploaded_file.name.endswith('.csv'):
+    # Import Trial Balance
+    st.subheader("Import Trial Balance")
+    tb_uploaded_file = st.file_uploader("Import Trial Balance CSV", type=["csv"])
+    if tb_uploaded_file is not None:
+        try:
             st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
-        elif tb_uploaded_file.name.endswith('.parquet'):
-            st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
-        st.success("Trial Balance file imported successfully!")
-    except Exception as e:
-        st.error(f"Failed to import trial balance file: {e}")
-        logging.error(f"Failed to import trial balance file: {e}")
+            st.success("Trial Balance CSV file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import trial balance file: {e}")
+            logging.error(f"Failed to import trial balance file: {e}")
 
     # Input audited client name and year
     st.session_state.audited_client_name = st.text_input("Enter Audited Client Name:", value=st.session_state.audited_client_name)
