@@ -57,6 +57,10 @@ if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
 if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
+if 'sum_debit_credit_per_account' not in st.session_state:
+    st.session_state.sum_debit_credit_per_account = None
+if 'total_debit_credit' not in st.session_state:
+    st.session_state.total_debit_credit = None
 
 # Define authorized users
 authorized_users = {
@@ -168,6 +172,29 @@ def convert_data_types(df):
         if field in df.columns:
             df[field] = dd.to_datetime(df[field], errors="coerce")
     return df
+
+# Function to calculate sum of debit and credit per account and total
+def calculate_sum_debit_credit():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to calculate. Please import and map a file first.")
+        return
+
+    try:
+        # Calculate sum of debit and credit per account
+        st.session_state.sum_debit_credit_per_account = st.session_state.processed_df.groupby("Account Number").agg(
+            Total_Debit=("Debit Amount (Dr)", "sum"),
+            Total_Credit=("Credit Amount (Cr)", "sum")
+        ).reset_index().compute()
+
+        # Calculate total sum of debit and credit
+        total_debit = st.session_state.sum_debit_credit_per_account["Total_Debit"].sum()
+        total_credit = st.session_state.sum_debit_credit_per_account["Total_Credit"].sum()
+        st.session_state.total_debit_credit = {"Total Debit": total_debit, "Total Credit": total_credit}
+
+        st.success("Sum of debit and credit calculated successfully!")
+    except Exception as e:
+        st.error(f"Error during calculation: {e}")
+        logging.error(f"Error during calculation: {e}")
 
 # Function to check for 99999 pattern
 def is_99999(value):
@@ -617,6 +644,18 @@ def main_app():
                 st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
                 st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
                 st.success("Columns mapped successfully!")
+
+                # Calculate sum of debit and credit per account and total
+                calculate_sum_debit_credit()
+
+                # Display sum of debit and credit per account
+                st.subheader("Sum of Debit and Credit per Account")
+                st.dataframe(st.session_state.sum_debit_credit_per_account)
+
+                # Display total sum of debit and credit
+                st.subheader("Total Sum of Debit and Credit")
+                st.write(f"Total Debit: {st.session_state.total_debit_credit['Total Debit']}")
+                st.write(f"Total Credit: {st.session_state.total_debit_credit['Total Credit']}")
 
     # Completeness Check
     st.header("2. Completeness Check")
