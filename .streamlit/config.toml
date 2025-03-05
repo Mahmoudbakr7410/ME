@@ -1,9 +1,7 @@
 [server]
-maxUploadSize = 5000
+maxUploadSize = 1000
 headless = true
-maxMessageSize = 1000
 enableCORS = false
-sessionStateTimeout = 1800
 [theme]
 base = "dark"
 [global]
