@@ -11,6 +11,9 @@ from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
 import csv  # For delimiter detection
+import dask.dataframe as dd  # For memory-efficient data processing
+import psutil  # For memory profiling
+import multiprocessing as mp  # For multiprocessing
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -156,11 +159,12 @@ def detect_delimiter(file):
     return delimiter
 
 # Function to convert data types
+@st.cache_data
 def convert_data_types(df):
     numeric_fields = ["Debit Amount (Dr)", "Credit Amount (Cr)"]
     for field in numeric_fields:
         if field in df.columns:
-            df[field] = pd.to_numeric(df[field], errors="coerce")
+            df[field] = pd.to_numeric(df[field], errors="coerce").astype('float32')
     date_fields = ["Date"]
     for field in date_fields:
         if field in df.columns:
@@ -176,6 +180,7 @@ def is_99999(value):
         return False
 
 # Function to perform completeness check
+@st.cache_data
 def perform_completeness_check():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
         st.warning("No GL data to test. Please import a file first.")
@@ -223,6 +228,7 @@ def perform_completeness_check():
         logging.error(f"Error during completeness check: {e}")
 
 # Function to detect seldomly used accounts
+@st.cache_data
 def detect_seldomly_used_accounts():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
         st.warning("No data to analyze. Please import a file first.")
@@ -246,6 +252,7 @@ def detect_seldomly_used_accounts():
         logging.error(f"Error during seldomly used accounts detection: {e}")
 
 # Function to perform data mining and pattern recognition
+@st.cache_data
 def perform_pattern_recognition():
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
         st.warning("No data to analyze. Please import a file first.")
@@ -279,6 +286,7 @@ def perform_pattern_recognition():
         logging.error(f"Error during pattern recognition: {e}")
 
 # Function to export PDF report
+@st.cache_data
 def export_pdf_report():
     pdf = FPDF()
     pdf.add_page()
@@ -304,6 +312,7 @@ def export_pdf_report():
     return pdf_output
 
 # Function to export Excel report
+@st.cache_data
 def export_excel_report():
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
@@ -313,6 +322,7 @@ def export_excel_report():
     return output
 
 # Function to perform high-risk testing
+@st.cache_data
 def perform_high_risk_test():
     if not st.session_state.completeness_check_passed:
         st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
