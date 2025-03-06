@@ -11,7 +11,7 @@ from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
 import csv  # For delimiter detection
-import pyodbc  # For SQL Azure connection
+import pyodbc  # For Azure SQL Database connection
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -148,46 +148,6 @@ optional_fields = [
 
 all_fields = required_fields + optional_fields
 
-# Function to connect to SQL Azure
-def get_db_connection():
-    server = "mahx.database.windows.net"
-    database = "MAHx"
-    username = "mahmoudbakr7410@gmail.com@mahx"
-    password = "7oda@ELBASHA"
-    driver = '{ODBC Driver 17 for SQL Server}'
-    connection_string = f"DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}"
-    conn = pyodbc.connect(connection_string)
-    return conn
-
-# Function to store data in SQL Azure
-def store_data_to_sql(df, table_name):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Create a temporary table to store the data
-    cursor.execute(f"IF OBJECT_ID('{table_name}', 'U') IS NOT NULL DROP TABLE {table_name};")
-    
-    # Create the table with the appropriate schema
-    columns = df.columns
-    columns_with_types = ", ".join([f"{col} NVARCHAR(MAX)" for col in columns])
-    cursor.execute(f"CREATE TABLE {table_name} ({columns_with_types});")
-    
-    # Insert data into the table
-    for _, row in df.iterrows():
-        values = ", ".join([f"'{str(value)}'" for value in row.values])
-        cursor.execute(f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({values});")
-    
-    conn.commit()
-    conn.close()
-
-# Function to fetch data from SQL Azure
-def fetch_data_from_sql(table_name):
-    conn = get_db_connection()
-    query = f"SELECT * FROM {table_name}"
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
-
 # Function to detect delimiter for txt files
 def detect_delimiter(file):
     sample = file.read(1024).decode('utf-8')
@@ -208,15 +168,30 @@ def convert_data_types(df):
             df[field] = pd.to_datetime(df[field], errors="coerce")
     return df
 
-# Function to perform completeness check
-def perform_completeness_check(processed_df, trial_balance_df):
+# Function to check for 99999 pattern
+def is_99999(value):
     try:
-        gl_summary = processed_df.groupby("Account Number").agg(
+        value = float(value)
+        return abs(value - round(value, 0)) >= 0.999 and abs(value - round(value, 0)) < 1.0
+    except (ValueError, TypeError):
+        return False
+
+# Function to perform completeness check
+def perform_completeness_check():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No GL data to test. Please import a file first.")
+        return
+    if st.session_state.trial_balance is None or st.session_state.trial_balance.empty:
+        st.warning("No trial balance data to test. Please import a trial balance file first.")
+        return
+
+    try:
+        gl_summary = st.session_state.processed_df.groupby("Account Number").agg(
             Total_Debits=("Debit Amount (Dr)", "sum"),
             Total_Credits=("Credit Amount (Cr)", "sum")
         ).reset_index()
         merged_df = pd.merge(
-            trial_balance_df,
+            st.session_state.trial_balance,
             gl_summary,
             on="Account Number",
             how="left"
@@ -248,15 +223,113 @@ def perform_completeness_check(processed_df, trial_balance_df):
         st.error(f"Error during completeness check: {e}")
         logging.error(f"Error during completeness check: {e}")
 
+# Function to detect seldomly used accounts
+def detect_seldomly_used_accounts():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to analyze. Please import a file first.")
+        return
+
+    try:
+        account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
+        account_frequency.columns = ["Account Number", "Transaction Count"]
+        seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
+        st.session_state.seldomly_used_accounts = seldomly_used_accounts
+        st.subheader("Seldomly Used Accounts")
+        st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {st.session_state.seldomly_used_accounts_threshold} transactions.")
+        st.dataframe(seldomly_used_accounts)
+        st.subheader("Conclusion")
+        if len(seldomly_used_accounts) > 0:
+            st.warning(f"{len(seldomly_used_accounts)} accounts are seldomly used. Review these accounts for potential risks.")
+        else:
+            st.success("No seldomly used accounts found.")
+    except Exception as e:
+        st.error(f"Error during seldomly used accounts detection: {e}")
+        logging.error(f"Error during seldomly used accounts detection: {e}")
+
+# Function to perform data mining and pattern recognition
+def perform_pattern_recognition():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to analyze. Please import a file first.")
+        return
+
+    try:
+        numeric_cols = st.session_state.processed_df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) == 0:
+            st.warning("No numeric columns found for pattern recognition.")
+            return
+        scaler = StandardScaler()
+        scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols])
+        kmeans = KMeans(n_clusters=3)
+        clusters = kmeans.fit_predict(scaled_data)
+        st.session_state.processed_df["Cluster"] = clusters
+        cluster_summary = st.session_state.processed_df.groupby("Cluster").agg(
+            Count=("Cluster", "size"),
+            Avg_Debit=("Debit Amount (Dr)", "mean"),
+            Avg_Credit=("Credit Amount (Cr)", "mean")
+        ).reset_index()
+        st.session_state.pattern_recognition_results = cluster_summary
+        st.subheader("Pattern Recognition Results")
+        st.dataframe(cluster_summary)
+        st.subheader("Conclusion")
+        if len(cluster_summary) > 1:
+            st.success("Pattern recognition identified distinct groups of transactions. Review the clusters for insights.")
+        else:
+            st.warning("No significant patterns were found in the data.")
+    except Exception as e:
+        st.error(f"Error during pattern recognition: {e}")
+        logging.error(f"Error during pattern recognition: {e}")
+
+# Function to export PDF report
+def export_pdf_report():
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Maham for Professional Services", ln=True, align="C")
+    pdf.cell(200, 10, txt=f"Audited Client: {st.session_state.audited_client_name}", ln=True, align="L")
+    pdf.cell(200, 10, txt=f"Year Audited: {st.session_state.year_audited}", ln=True, align="L")
+    pdf.cell(200, 10, txt=f"Report Generated On: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="L")
+    pdf.cell(200, 10, txt=f"Generated By: {st.session_state.logged_in_user}", ln=True, align="L")
+    pdf.cell(200, 10, txt="Completeness Check Conclusion:", ln=True, align="L")
+    if st.session_state.completeness_check_passed:
+        pdf.cell(200, 10, txt="Completeness check passed. Maximum discrepancy is within the allowed tolerance of 5.", ln=True, align="L")
+    else:
+        max_discrepancy = st.session_state.completeness_check_results["Discrepancy"].abs().max()
+        pdf.cell(200, 10, txt=f"Completeness check failed. Maximum discrepancy ({max_discrepancy}) exceeds the allowed tolerance of 5.", ln=True, align="L")
+    pdf.cell(200, 10, txt="Flagged Entries by Category:", ln=True, align="L")
+    pdf.set_font("Arial", size=10)
+    for category, entries in st.session_state.flagged_entries_by_category.items():
+        pdf.cell(200, 10, txt=f"Category: {category}", ln=True, align="L")
+        for index, row in entries.iterrows():
+            pdf.cell(200, 10, txt=f"Transaction ID: {row['Transaction ID']}, Date: {row['Date']}, Debit: {row['Debit Amount (Dr)']}, Credit: {row['Credit Amount (Cr)']}", ln=True, align="L")
+    pdf_output = pdf.output(dest="S").encode("latin1")
+    return pdf_output
+
+# Function to export Excel report
+def export_excel_report():
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        for category, entries in st.session_state.flagged_entries_by_category.items():
+            entries.to_excel(writer, sheet_name=category, index=False)
+    output.seek(0)
+    return output
+
 # Function to perform high-risk testing
-def perform_high_risk_test(processed_df):
+def perform_high_risk_test():
+    if not st.session_state.completeness_check_passed:
+        st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
+        return
+
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to test. Please import a file first.")
+        return
+
     try:
         st.session_state.high_risk_entries = pd.DataFrame()
         st.session_state.flagged_entries_by_category = {}
 
         if st.session_state.public_holidays_var:
-            if "Date" in processed_df.columns:
-                holiday_entries = processed_df[processed_df["Date"].isin(st.session_state.public_holidays)]
+            if "Date" in st.session_state.processed_df.columns:
+                holiday_entries = st.session_state.processed_df[st.session_state.processed_df["Date"].isin(st.session_state.public_holidays)]
                 st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, holiday_entries])
                 st.session_state.flagged_entries_by_category["Public Holidays"] = holiday_entries
             else:
@@ -273,19 +346,19 @@ def perform_high_risk_test(processed_df):
                 except (ValueError, TypeError):
                     return False
 
-            rounded_entries = processed_df[
-                processed_df["Debit Amount (Dr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold)) |
-                processed_df["Credit Amount (Cr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold))
+            rounded_entries = st.session_state.processed_df[
+                st.session_state.processed_df["Debit Amount (Dr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold)) |
+                st.session_state.processed_df["Credit Amount (Cr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold))
             ]
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, rounded_entries])
             st.session_state.flagged_entries_by_category["Rounded Numbers"] = rounded_entries
 
         if st.session_state.unusual_users_var:
-            if "Created By" in processed_df.columns:
+            if "Created By" in st.session_state.processed_df.columns:
                 if not st.session_state.authorized_users:
                     st.warning("No authorized users provided. Skipping unusual users check.")
                 else:
-                    unusual_user_entries = processed_df[~processed_df["Created By"].isin(st.session_state.authorized_users)]
+                    unusual_user_entries = st.session_state.processed_df[~st.session_state.processed_df["Created By"].isin(st.session_state.authorized_users)]
                     st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, unusual_user_entries])
                     st.session_state.flagged_entries_by_category["Unauthorized Users"] = unusual_user_entries
             else:
@@ -293,17 +366,20 @@ def perform_high_risk_test(processed_df):
                 return
 
         if st.session_state.post_closing_var:
-            if "Date" in processed_df.columns:
+            if "Date" in st.session_state.processed_df.columns:
                 if st.session_state.closing_date is None:
                     st.warning("No closing date provided. Skipping post-closing entries check.")
                 else:
+                    # Convert closing_date to datetime64[ns]
                     closing_date = pd.to_datetime(st.session_state.closing_date)
-                    processed_df["Date"] = pd.to_datetime(processed_df["Date"])
+                    # Ensure the Date column is datetime64[ns]
+                    st.session_state.processed_df["Date"] = pd.to_datetime(st.session_state.processed_df["Date"])
+                    # Restrict post_closing_date to be after the audited year's December 31
                     audited_year_end = pd.to_datetime(f"{st.session_state.year_audited}-12-31")
                     if closing_date <= audited_year_end:
                         st.error("Closing date must be after the audited year's December 31.")
                         return
-                    post_closing_entries = processed_df[processed_df["Date"] > closing_date]
+                    post_closing_entries = st.session_state.processed_df[st.session_state.processed_df["Date"] > closing_date]
                     st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, post_closing_entries])
                     st.session_state.flagged_entries_by_category["Post-Closing Entries"] = post_closing_entries
             else:
@@ -312,30 +388,30 @@ def perform_high_risk_test(processed_df):
 
         if st.session_state.auth_threshold_var:
             threshold = st.session_state.auth_threshold
-            below_threshold_entries = processed_df[
-                (processed_df["Debit Amount (Dr)"] >= threshold * 0.9) & 
-                (processed_df["Debit Amount (Dr)"] < threshold) |
-                (processed_df["Credit Amount (Cr)"] >= threshold * 0.9) & 
-                (processed_df["Credit Amount (Cr)"] < threshold)
+            below_threshold_entries = st.session_state.processed_df[
+                (st.session_state.processed_df["Debit Amount (Dr)"] >= threshold * 0.9) & 
+                (st.session_state.processed_df["Debit Amount (Dr)"] < threshold) |
+                (st.session_state.processed_df["Credit Amount (Cr)"] >= threshold * 0.9) & 
+                (st.session_state.processed_df["Credit Amount (Cr)"] < threshold)
             ]
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, below_threshold_entries])
             st.session_state.flagged_entries_by_category["Below Authorization Threshold"] = below_threshold_entries
 
         if st.session_state.nine_pattern_var:
-            nine_pattern_entries = processed_df[
-                processed_df["Debit Amount (Dr)"].apply(is_99999) |
-                processed_df["Credit Amount (Cr)"].apply(is_99999)
+            nine_pattern_entries = st.session_state.processed_df[
+                st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999) |
+                st.session_state.processed_df["Credit Amount (Cr)"].apply(is_99999)
             ]
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
             st.session_state.flagged_entries_by_category["99999 Pattern"] = nine_pattern_entries
 
         if st.session_state.keywords_var:
-            if "Entry Description" in processed_df.columns:
+            if "Entry Description" in st.session_state.processed_df.columns:
                 if not st.session_state.suspicious_keywords:
                     st.warning("No suspicious keywords provided. Skipping keyword check.")
                 else:
-                    keyword_entries = processed_df[
-                        processed_df["Entry Description"].str.contains(
+                    keyword_entries = st.session_state.processed_df[
+                        st.session_state.processed_df["Entry Description"].str.contains(
                             "|".join(st.session_state.suspicious_keywords), case=False, na=False
                         )
                     ]
@@ -346,12 +422,12 @@ def perform_high_risk_test(processed_df):
                 return
 
         if st.session_state.seldomly_used_accounts_var:
-            if processed_df is not None:
-                account_frequency = processed_df["Account Number"].value_counts().reset_index()
+            if st.session_state.processed_df is not None:
+                account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
                 account_frequency.columns = ["Account Number", "Transaction Count"]
                 seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
-                seldomly_used_entries = processed_df[
-                    processed_df["Account Number"].isin(seldomly_used_accounts["Account Number"])
+                seldomly_used_entries = st.session_state.processed_df[
+                    st.session_state.processed_df["Account Number"].isin(seldomly_used_accounts["Account Number"])
                 ]
                 st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
                 st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries
@@ -393,6 +469,42 @@ def visualize_high_risk_entries():
             nine_pattern_entries = st.session_state.flagged_entries_by_category["99999 Pattern"]
             fig = px.scatter(nine_pattern_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)", color="Account Number")
             st.plotly_chart(fig)
+
+# Function to upload data to Azure SQL Database
+def upload_to_azure_sql(df):
+    try:
+        # Azure SQL Database connection details
+        SERVER = "mahx.database.windows.net"
+        DATABASE = "MAHx"
+        USERNAME = "mahmoudbakr7410@gmail.com@mahx"
+        PASSWORD = "7oda@ELBASHA"
+        TABLE_NAME = "dbo.GL_Dump"
+
+        # Create connection string
+        conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={SERVER};DATABASE={DATABASE};UID={USERNAME};PWD={PASSWORD}"
+
+        # Connect to Azure SQL Database
+        conn = pyodbc.connect(conn_str)
+        cursor = conn.cursor()
+
+        # Insert data into the table
+        for index, row in df.iterrows():
+            cursor.execute(f"""
+                INSERT INTO {TABLE_NAME} (TransactionID, Date, DebitAmount, CreditAmount, AccountNumber)
+                VALUES (?, ?, ?, ?, ?)
+            """, row['Transaction ID'], row['Date'], row['Debit Amount (Dr)'], row['Credit Amount (Cr)'], row['Account Number'])
+
+        # Commit the transaction
+        conn.commit()
+
+        # Close the connection
+        cursor.close()
+        conn.close()
+
+        st.success("Data uploaded to Azure SQL Database successfully!")
+    except Exception as e:
+        st.error(f"Error uploading data to Azure SQL Database: {e}")
+        logging.error(f"Error uploading data to Azure SQL Database: {e}")
 
 # Authentication
 def login():
@@ -468,24 +580,37 @@ def main_app():
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
-    
-    # Upload GL Data
-    uploaded_file = st.file_uploader("Upload GL Data (CSV or Excel)", type=["csv", "xlsx"])
+    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt"])
     if uploaded_file is not None:
-        if uploaded_file.name.endswith(".csv"):
-            st.session_state.df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith(".xlsx"):
-            st.session_state.df = pd.read_excel(uploaded_file)
-        st.success("File uploaded successfully!")
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                st.session_state.df = pd.read_csv(uploaded_file)
+            elif uploaded_file.name.endswith('.parquet'):
+                st.session_state.df = pd.read_parquet(uploaded_file)
+            elif uploaded_file.name.endswith('.txt'):
+                delimiter = detect_delimiter(uploaded_file)
+                st.session_state.df = pd.read_csv(uploaded_file, delimiter=delimiter)
+            st.success("GL Dump file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import file: {e}")
+            logging.error(f"Failed to import file: {e}")
 
-    # Upload Trial Balance
-    uploaded_trial_balance = st.file_uploader("Upload Trial Balance (CSV or Excel)", type=["csv", "xlsx"])
-    if uploaded_trial_balance is not None:
-        if uploaded_trial_balance.name.endswith(".csv"):
-            st.session_state.trial_balance = pd.read_csv(uploaded_trial_balance)
-        elif uploaded_trial_balance.name.endswith(".xlsx"):
-            st.session_state.trial_balance = pd.read_excel(uploaded_trial_balance)
-        st.success("Trial Balance uploaded successfully!")
+    # Import Trial Balance
+    st.subheader("Import Trial Balance")
+    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt"])
+    if tb_uploaded_file is not None:
+        try:
+            if tb_uploaded_file.name.endswith('.csv'):
+                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
+            elif tb_uploaded_file.name.endswith('.parquet'):
+                st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
+            elif tb_uploaded_file.name.endswith('.txt'):
+                delimiter = detect_delimiter(tb_uploaded_file)
+                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter=delimiter)
+            st.success("Trial Balance file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import trial balance file: {e}")
+            logging.error(f"Failed to import trial balance file: {e}")
 
     # Input audited client name and year
     st.session_state.audited_client_name = st.text_input("Enter Audited Client Name:", value=st.session_state.audited_client_name)
@@ -502,60 +627,100 @@ def main_app():
             if missing_fields:
                 st.error(f"Missing required fields: {missing_fields}")
             else:
-                processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
-                processed_df = convert_data_types(processed_df)
-                store_data_to_sql(processed_df, "Processed_Data")  # Store processed data in SQL Azure
-                st.success("Columns mapped and data stored successfully!")
+                st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
+                st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
+                st.success("Columns mapped successfully!")
 
     # Completeness Check
     st.header("2. Completeness Check")
     if st.button("Run Completeness Check"):
-        processed_df = fetch_data_from_sql("Processed_Data")
-        trial_balance_df = fetch_data_from_sql("Trial_Balance")
-        
-        if processed_df is not None and trial_balance_df is not None:
-            perform_completeness_check(processed_df, trial_balance_df)
-        else:
-            st.warning("No data to test. Please import and process data first.")
+        perform_completeness_check()
 
     # Data Mining and Pattern Recognition
     st.header("3. Data Mining and Pattern Recognition")
     if st.button("Run Pattern Recognition"):
-        processed_df = fetch_data_from_sql("Processed_Data")
-        if processed_df is not None:
-            perform_pattern_recognition(processed_df)
-        else:
-            st.warning("No data to analyze. Please import and process data first.")
+        perform_pattern_recognition()
 
     # High-Risk Criteria & Testing
     st.header("4. High-Risk Criteria & Testing")
-    if st.button("Run High-Risk Test"):
-        processed_df = fetch_data_from_sql("Processed_Data")
-        if processed_df is not None:
-            perform_high_risk_test(processed_df)
+    if not st.session_state.completeness_check_passed:
+        st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
+    else:
+        st.session_state.public_holidays_var = st.checkbox("Public Holidays")
+        st.session_state.rounded_var = st.checkbox("Rounded Numbers")
+        st.session_state.unusual_users_var = st.checkbox("Unusual Users")
+        st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
+        st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
+        st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
+        st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
+        st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
+
+        if st.session_state.public_holidays_var:
+            public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
+            st.session_state.public_holidays = []
+            for date in public_holidays_input:
+                if date.strip():
+                    try:
+                        parsed_date = pd.to_datetime(date.strip(), format="%Y-%m-%d")
+                        st.session_state.public_holidays.append(parsed_date)
+                    except ValueError:
+                        st.error(f"Invalid date format: {date.strip()}. Please use the format YYYY-MM-DD.")
+
+        if st.session_state.rounded_var:
+            st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
+
+        if st.session_state.unusual_users_var:
+            st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
+            st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
+
+        if st.session_state.post_closing_var:
+            st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
+
+        if st.session_state.auth_threshold_var:
+            st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
+
+        if st.session_state.keywords_var:
+            st.session_state.suspicious_keywords = st.text_area(
+                "Enter Suspicious Keywords (comma-separated):",
+                "miscellaneous, adjustment, correction, other, rounding"
+            ).strip().split(",")
+            st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
+
+        if st.session_state.seldomly_used_accounts_var:
+            st.session_state.seldomly_used_accounts_threshold = st.number_input(
+                "Enter Threshold for Seldomly Used Accounts (minimum number of transactions):",
+                value=5, min_value=1
+            )
+
+        if st.button("Run High-Risk Test"):
+            perform_high_risk_test()
             visualize_high_risk_entries()
-        else:
-            st.warning("No data to test. Please import and process data first.")
 
     # Export Reports
     st.header("5. Export Reports")
-    if st.button("Export PDF Report"):
-        pdf_output = export_pdf_report()
-        st.download_button(
-            label="Download PDF Report",
-            data=pdf_output,
-            file_name="audit_report.pdf",
-            mime="application/pdf",
-        )
+    if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
+        if st.button("Export PDF Report"):
+            pdf_output = export_pdf_report()
+            st.download_button(
+                label="Download PDF Report",
+                data=pdf_output,
+                file_name="audit_report.pdf",
+                mime="application/pdf",
+            )
 
-    if st.button("Export Excel Report"):
-        excel_output = export_excel_report()
-        st.download_button(
-            label="Download Excel Report",
-            data=excel_output,
-            file_name="flagged_entries.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        if st.button("Export Excel Report"):
+            excel_output = export_excel_report()
+            st.download_button(
+                label="Download Excel Report",
+                data=excel_output,
+                file_name="flagged_entries.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+    # Upload to Azure SQL Database
+    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
+        if st.button("Upload to Azure SQL Database"):
+            upload_to_azure_sql(st.session_state.processed_df)
 
     # Guide
     st.sidebar.header("Guide")
@@ -583,10 +748,9 @@ def main_app():
     """)
 
     # Preview Data
-    processed_df = fetch_data_from_sql("Processed_Data")
-    if processed_df is not None and not processed_df.empty:
+    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
         st.header("Preview Data")
-        st.dataframe(processed_df.head(10))
+        st.dataframe(st.session_state.processed_df.head(10))
 
 # Check if user is logged in
 if not st.session_state.logged_in:
