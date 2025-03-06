@@ -11,6 +11,8 @@ from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
 import csv  # For delimiter detection
+from functools import lru_cache
+import calendar
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -55,6 +57,20 @@ if 'pattern_recognition_results' not in st.session_state:
     st.session_state.pattern_recognition_results = None
 if 'seldomly_used_accounts_threshold' not in st.session_state:
     st.session_state.seldomly_used_accounts_threshold = 5
+if 'delimiter' not in st.session_state:
+    st.session_state.delimiter = None
+if 'public_holidays_var' not in st.session_state:
+    st.session_state.public_holidays_var = False
+if 'suspicious_keywords_var' not in st.session_state:
+    st.session_state.suspicious_keywords_var = False
+if 'rounded_numbers_var' not in st.session_state:
+    st.session_state.rounded_numbers_var = False
+if 'weekend_transactions_var' not in st.session_state:
+    st.session_state.weekend_transactions_var = False
+if 'seldomly_used_accounts' not in st.session_state:
+    st.session_state.seldomly_used_accounts = pd.DataFrame()
+if 'logged_in_user' not in st.session_state:
+    st.session_state.logged_in_user = None
 
 # Define authorized users
 authorized_users = {
@@ -166,6 +182,62 @@ def convert_data_types(df):
         if field in df.columns:
             df[field] = pd.to_datetime(df[field], errors="coerce")
     return df
+
+# Function to load data
+def load_data(uploaded_file, delimiter):
+    try:
+        df = pd.read_csv(uploaded_file, delimiter=delimiter, encoding='utf-8', on_bad_lines='skip')
+        return df
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        return None
+
+# Function to load trial balance data
+def load_trial_balance(uploaded_file, delimiter):
+    try:
+        trial_balance = pd.read_csv(uploaded_file, delimiter=delimiter, encoding='utf-8', on_bad_lines='skip')
+        return trial_balance
+    except Exception as e:
+        st.error(f"Error reading trial balance file: {e}")
+        return None
+
+# Function to ensure required columns are present and filled
+def check_required_columns(df):
+    missing_columns = [field for field in required_fields if field not in df.columns]
+    if missing_columns:
+        st.error(f"Missing required columns: {', '.join(missing_columns)}")
+        return False
+
+    empty_columns = [field for field in required_fields if field in df.columns and df[field].isnull().all()]
+    if empty_columns:
+        st.error(f"Required columns are completely empty: {', '.join(empty_columns)}")
+        return False
+
+    return True
+
+# Function to add public holidays based on the selected country and year
+def add_public_holidays(year, country="Saudi Arabia"):
+    holidays = []
+    if country == "Saudi Arabia":
+        # Define public holidays for Saudi Arabia
+        holidays.extend([
+            f"{year}-09-23",  # Saudi National Day
+            f"{year}-04-10",  # Eid al-Fitr (approximate)
+            f"{year}-06-16"   # Eid al-Adha (approximate)
+        ])
+    elif country == "United States":
+        # Define public holidays for the United States
+        holidays.extend([
+            f"{year}-01-01",  # New Year's Day
+            f"{year}-07-04",  # Independence Day
+            f"{year}-12-25"   # Christmas Day
+        ])
+    else:
+        st.warning("No specific public holidays defined for the selected country.")
+
+    # Convert the list of holiday dates to datetime objects
+    holiday_dates = pd.to_datetime(holidays, errors='coerce')
+    return holiday_dates.dropna().tolist()
 
 # Function to check for 99999 pattern
 def is_99999(value):
@@ -332,386 +404,145 @@ def perform_high_risk_test():
                 st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, holiday_entries])
                 st.session_state.flagged_entries_by_category["Public Holidays"] = holiday_entries
             else:
-                st.error("Column 'Date' not found in the data.")
-                return
+                st.warning("No 'Date' column found for public holiday testing.")
 
-        if st.session_state.rounded_var:
-            def is_rounded(value, threshold):
-                try:
-                    value = float(value)
-                    if value == 0:
-                        return False
-                    return (value % threshold == 0) or (math.isclose(value % threshold, threshold, rel_tol=1e-6))
-                except (ValueError, TypeError):
-                    return False
+        if st.session_state.suspicious_keywords_var:
+            description_column = "Entry Description"  # Adjust column name as needed
+            if description_column in st.session_state.processed_df.columns:
+                keyword_entries = st.session_state.processed_df[st.session_state.processed_df[description_column].str.contains('|'.join(st.session_state.suspicious_keywords), case=False, na=False)]
+                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, keyword_entries])
+                st.session_state.flagged_entries_by_category["Suspicious Keywords"] = keyword_entries
+            else:
+                st.warning(f"No '{description_column}' column found for keyword testing.")
 
-            rounded_entries = st.session_state.processed_df[
-                st.session_state.processed_df["Debit Amount (Dr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold)) |
-                st.session_state.processed_df["Credit Amount (Cr)"].apply(lambda x: is_rounded(x, st.session_state.rounded_threshold))
-            ]
+        if st.session_state.rounded_numbers_var:
+            rounded_entries = st.session_state.processed_df[st.session_state.processed_df.apply(lambda row: any(is_99999(row[col]) for col in ["Debit Amount (Dr)", "Credit Amount (Cr)"]), axis=1)]
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, rounded_entries])
             st.session_state.flagged_entries_by_category["Rounded Numbers"] = rounded_entries
 
-        if st.session_state.unusual_users_var:
-            if "Created By" in st.session_state.processed_df.columns:
-                if not st.session_state.authorized_users:
-                    st.warning("No authorized users provided. Skipping unusual users check.")
-                else:
-                    unusual_user_entries = st.session_state.processed_df[~st.session_state.processed_df["Created By"].isin(st.session_state.authorized_users)]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, unusual_user_entries])
-                    st.session_state.flagged_entries_by_category["Unauthorized Users"] = unusual_user_entries
-            else:
-                st.error("Column 'Created By' not found in the data.")
-                return
-
-        if st.session_state.post_closing_var:
+        if st.session_state.weekend_transactions_var:
             if "Date" in st.session_state.processed_df.columns:
-                if st.session_state.closing_date is None:
-                    st.warning("No closing date provided. Skipping post-closing entries check.")
-                else:
-                    # Convert closing_date to datetime64[ns]
-                    closing_date = pd.to_datetime(st.session_state.closing_date)
-                    # Ensure the Date column is datetime64[ns]
-                    st.session_state.processed_df["Date"] = pd.to_datetime(st.session_state.processed_df["Date"])
-                    # Restrict post_closing_date to be after the audited year's December 31
-                    audited_year_end = pd.to_datetime(f"{st.session_state.year_audited}-12-31")
-                    if closing_date <= audited_year_end:
-                        st.error("Closing date must be after the audited year's December 31.")
-                        return
-                    post_closing_entries = st.session_state.processed_df[st.session_state.processed_df["Date"] > closing_date]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, post_closing_entries])
-                    st.session_state.flagged_entries_by_category["Post-Closing Entries"] = post_closing_entries
+                weekend_entries = st.session_state.processed_df[st.session_state.processed_df["Date"].dt.dayofweek.isin([5, 6])]
+                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, weekend_entries])
+                st.session_state.flagged_entries_by_category["Weekend Transactions"] = weekend_entries
             else:
-                st.error("Column 'Date' not found in the data.")
-                return
+                st.warning("No 'Date' column found for weekend transactions testing.")
 
-        if st.session_state.auth_threshold_var:
-            threshold = st.session_state.auth_threshold
-            below_threshold_entries = st.session_state.processed_df[
-                (st.session_state.processed_df["Debit Amount (Dr)"] >= threshold * 0.9) & 
-                (st.session_state.processed_df["Debit Amount (Dr)"] < threshold) |
-                (st.session_state.processed_df["Credit Amount (Cr)"] >= threshold * 0.9) & 
-                (st.session_state.processed_df["Credit Amount (Cr)"] < threshold)
-            ]
-            st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, below_threshold_entries])
-            st.session_state.flagged_entries_by_category["Below Authorization Threshold"] = below_threshold_entries
-
-        if st.session_state.nine_pattern_var:
-            nine_pattern_entries = st.session_state.processed_df[
-                st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999) |
-                st.session_state.processed_df["Credit Amount (Cr)"].apply(is_99999)
-            ]
-            st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
-            st.session_state.flagged_entries_by_category["99999 Pattern"] = nine_pattern_entries
-
-        if st.session_state.keywords_var:
-            if "Entry Description" in st.session_state.processed_df.columns:
-                if not st.session_state.suspicious_keywords:
-                    st.warning("No suspicious keywords provided. Skipping keyword check.")
-                else:
-                    keyword_entries = st.session_state.processed_df[
-                        st.session_state.processed_df["Entry Description"].str.contains(
-                            "|".join(st.session_state.suspicious_keywords), case=False, na=False
-                        )
-                    ]
-                    st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, keyword_entries])
-                    st.session_state.flagged_entries_by_category["Suspicious Keywords"] = keyword_entries
-            else:
-                st.error("Column 'Entry Description' not found in the data.")
-                return
-
-        if st.session_state.seldomly_used_accounts_var:
-            if st.session_state.processed_df is not None:
-                account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
-                account_frequency.columns = ["Account Number", "Transaction Count"]
-                seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
-                seldomly_used_entries = st.session_state.processed_df[
-                    st.session_state.processed_df["Account Number"].isin(seldomly_used_accounts["Account Number"])
-                ]
-                st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, seldomly_used_entries])
-                st.session_state.flagged_entries_by_category["Seldomly Used Accounts"] = seldomly_used_entries
-
-        if not st.session_state.high_risk_entries.empty:
-            st.success(f"Found {len(st.session_state.high_risk_entries)} high-risk entries.")
+        st.subheader("High-Risk Entries")
+        if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
+            st.dataframe(st.session_state.high_risk_entries)
         else:
             st.success("No high-risk entries found.")
+
+        st.subheader("Flagged Entries by Category")
+        for category, entries in st.session_state.flagged_entries_by_category.items():
+            st.write(f"Category: {category}")
+            if entries is not None and not entries.empty:
+                st.dataframe(entries)
+            else:
+                st.write("No entries found in this category.")
+
     except Exception as e:
-        st.error(f"Error during testing: {e}")
+        st.error(f"Error during high-risk testing: {e}")
         logging.error(f"Error during high-risk testing: {e}")
 
-# Function to visualize high-risk entries
-def visualize_high_risk_entries():
-    if not st.session_state.high_risk_entries.empty:
-        st.header("High-Risk Entries Visualization")
+# Streamlit app layout
+def main():
+    st.title("Internal Audit Tool")
 
-        # Bar chart for counts of high-risk entries by category
-        st.subheader("Count of High-Risk Entries by Category")
-        category_counts = {category: len(entries) for category, entries in st.session_state.flagged_entries_by_category.items()}
-        fig = px.bar(x=list(category_counts.keys()), y=list(category_counts.values()), labels={"x": "Category", "y": "Count"})
-        st.plotly_chart(fig)
-
-        # Pie chart for distribution of high-risk entries
-        st.subheader("Distribution of High-Risk Entries")
-        fig = px.pie(names=list(category_counts.keys()), values=list(category_counts.values()))
-        st.plotly_chart(fig)
-
-        # Scatter plot for rounded numbers
-        if "Rounded Numbers" in st.session_state.flagged_entries_by_category:
-            st.subheader("Rounded Numbers Scatter Plot")
-            rounded_entries = st.session_state.flagged_entries_by_category["Rounded Numbers"]
-            fig = px.scatter(rounded_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)", color="Account Number")
-            st.plotly_chart(fig)
-
-        # Scatter plot for 99999 pattern
-        if "99999 Pattern" in st.session_state.flagged_entries_by_category:
-            st.subheader("99999 Pattern Scatter Plot")
-            nine_pattern_entries = st.session_state.flagged_entries_by_category["99999 Pattern"]
-            fig = px.scatter(nine_pattern_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)", color="Account Number")
-            st.plotly_chart(fig)
-
-# Authentication
-def login():
-    st.markdown(
-        """
-        <style>
-        .login-box {
-            background-color: #f0f2f6;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            max-width: 400px;
-            margin: auto;
-        }
-        .login-box h2 {
-            text-align: center;
-            color: #2c3e50;
-        }
-        .login-box input {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-        }
-        .login-box button {
-            width: 100%;
-            padding: 10px;
-            background-color: #3498db;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        .login-box button:hover {
-            background-color: #2980b9;
-        }
-        .footer {
-            position: fixed;
-            left: 10px;
-            bottom: 10px;
-            font-size: 12px;
-            color: #666;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        st.image("https://res.cloudinary.com/dwtw5d4kq/image/upload/v1740139683/cropped-oie_NfAWRTRKjjnC-1_c8my9c.png", width=50)
-    with col2:
-        st.markdown("<h2 style='text-align: left;'>Maham Data Analyzer</h2>", unsafe_allow_html=True)
-
-    st.markdown("<div class='login-box'>", unsafe_allow_html=True)
-    st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if username in authorized_users and authorized_users[username] == password:
-            st.session_state.logged_in = True
-            st.session_state.logged_in_user = username
-            st.success("Logged in successfully!")
-        else:
-            st.error("Invalid username or password")
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>", unsafe_allow_html=True)
-
-# Streamlit UI
-def main_app():
-    st.title("MAHAM DATA DEEP ANALYZER DEMO")
-
-    # Data Import & Processing
-    st.header("1. Data Import & Processing")
-    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt"])
-    if uploaded_file is not None:
-        try:
-            if uploaded_file.name.endswith('.csv'):
-                st.session_state.df = pd.read_csv(uploaded_file)
-            elif uploaded_file.name.endswith('.parquet'):
-                st.session_state.df = pd.read_parquet(uploaded_file)
-            elif uploaded_file.name.endswith('.txt'):
-                delimiter = detect_delimiter(uploaded_file)
-                st.session_state.df = pd.read_csv(uploaded_file, delimiter=delimiter)
-            st.success("GL Dump file imported successfully!")
-        except Exception as e:
-            st.error(f"Failed to import file: {e}")
-            logging.error(f"Failed to import file: {e}")
-
-    # Import Trial Balance
-    st.subheader("Import Trial Balance")
-    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt"])
-    if tb_uploaded_file is not None:
-        try:
-            if tb_uploaded_file.name.endswith('.csv'):
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
-            elif tb_uploaded_file.name.endswith('.parquet'):
-                st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
-            elif tb_uploaded_file.name.endswith('.txt'):
-                delimiter = detect_delimiter(tb_uploaded_file)
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter=delimiter)
-            st.success("Trial Balance file imported successfully!")
-        except Exception as e:
-            st.error(f"Failed to import trial balance file: {e}")
-            logging.error(f"Failed to import trial balance file: {e}")
-
-    # Input audited client name and year
-    st.session_state.audited_client_name = st.text_input("Enter Audited Client Name:", value=st.session_state.audited_client_name)
-    st.session_state.year_audited = st.number_input("Enter Year Audited:", value=st.session_state.year_audited)
-
-    if st.session_state.df is not None:
-        st.subheader("Map Columns")
-        st.session_state.column_mapping = {}
-        for field in all_fields:
-            st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
-        
-        if st.button("Confirm Mapping"):
-            missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
-            if missing_fields:
-                st.error(f"Missing required fields: {missing_fields}")
+    # Login section
+    if not st.session_state.logged_in:
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            if username in authorized_users and authorized_users[username] == password:
+                st.success("Logged in successfully!")
+                st.session_state.logged_in = True
+                st.session_state.logged_in_user = username
             else:
-                st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
-                st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
-                st.success("Columns mapped successfully!")
+                st.error("Incorrect username or password.")
 
-    # Completeness Check
-    st.header("2. Completeness Check")
-    if st.button("Run Completeness Check"):
-        perform_completeness_check()
+    if st.session_state.logged_in:
+        st.write(f"Welcome, {st.session_state.logged_in_user}!")
 
-    # Data Mining and Pattern Recognition
-    st.header("3. Data Mining and Pattern Recognition")
-    if st.button("Run Pattern Recognition"):
-        perform_pattern_recognition()
+        # Sidebar for settings and inputs
+        with st.sidebar:
+            st.header("Settings")
 
-    # High-Risk Criteria & Testing
-    st.header("4. High-Risk Criteria & Testing")
-    if not st.session_state.completeness_check_passed:
-        st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
-    else:
-        st.session_state.public_holidays_var = st.checkbox("Public Holidays")
-        st.session_state.rounded_var = st.checkbox("Rounded Numbers")
-        st.session_state.unusual_users_var = st.checkbox("Unusual Users")
-        st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
-        st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
-        st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
-        st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
-        st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
+            st.session_state.audited_client_name = st.text_input("Audited Client Name", value=st.session_state.audited_client_name)
+            st.session_state.year_audited = st.number_input("Year Audited", min_value=2000, max_value=datetime.now().year, value=st.session_state.year_audited)
 
-        if st.session_state.public_holidays_var:
-            public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
-            st.session_state.public_holidays = []
-            for date in public_holidays_input:
-                if date.strip():
+            st.session_state.seldomly_used_accounts_threshold = st.number_input("Seldomly Used Accounts Threshold", min_value=1, value=st.session_state.seldomly_used_accounts_threshold)
+
+            st.session_state.auth_threshold = st.number_input("Authorization Threshold", min_value=1, value=st.session_state.auth_threshold)
+
+            uploaded_file = st.file_uploader("Upload GL Data (CSV/TXT)", type=["csv", "txt"])
+
+            if uploaded_file is not None:
+                st.session_state.delimiter = st.text_input("Enter delimiter (e.g., ',', ';')", value=",")
+
+                if st.session_state.delimiter:
                     try:
-                        parsed_date = pd.to_datetime(date.strip(), format="%Y-%m-%d")
-                        st.session_state.public_holidays.append(parsed_date)
-                    except ValueError:
-                        st.error(f"Invalid date format: {date.strip()}. Please use the format YYYY-MM-DD.")
+                        st.session_state.df = load_data(uploaded_file, st.session_state.delimiter)
+                        if st.session_state.df is not None:
+                            st.success("GL Data loaded successfully!")
+                    except Exception as e:
+                        st.error(f"Error loading data: {e}")
 
-        if st.session_state.rounded_var:
-            st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
+            trial_balance_file = st.file_uploader("Upload Trial Balance (CSV/TXT)", type=["csv", "txt"])
 
-        if st.session_state.unusual_users_var:
-            st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
-            st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
+            if trial_balance_file is not None:
+                trial_delimiter = st.text_input("Enter Trial Balance delimiter (e.g., ',', ';')", value=",")
+                if trial_delimiter:
+                    try:
+                        st.session_state.trial_balance = load_trial_balance(trial_balance_file, trial_delimiter)
+                        if st.session_state.trial_balance is not None:
+                            st.success("Trial Balance loaded successfully!")
+                    except Exception as e:
+                        st.error(f"Error loading trial balance: {e}")
 
-        if st.session_state.post_closing_var:
-            st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
+            st.session_state.public_holidays_var = st.checkbox("Include Public Holidays", value=False)
+            if st.session_state.public_holidays_var:
+                st.session_state.public_holidays = add_public_holidays(st.session_state.year_audited)
+                st.write("Public Holidays:", st.session_state.public_holidays)
 
-        if st.session_state.auth_threshold_var:
-            st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
+            st.session_state.suspicious_keywords_var = st.checkbox("Include Suspicious Keywords", value=False)
+            if st.session_state.suspicious_keywords_var:
+                keywords_input = st.text_input("Enter suspicious keywords (comma-separated)", value="fraud, scam")
+                st.session_state.suspicious_keywords = [keyword.strip() for keyword in keywords_input.split(',')]
 
-        if st.session_state.keywords_var:
-            st.session_state.suspicious_keywords = st.text_area(
-                "Enter Suspicious Keywords (comma-separated):",
-                "miscellaneous, adjustment, correction, other, rounding"
-            ).strip().split(",")
-            st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
+            st.session_state.rounded_numbers_var = st.checkbox("Include Rounded Numbers (99999)", value=False)
+            st.session_state.weekend_transactions_var = st.checkbox("Include Weekend Transactions", value=False)
 
-        if st.session_state.seldomly_used_accounts_var:
-            st.session_state.seldomly_used_accounts_threshold = st.number_input(
-                "Enter Threshold for Seldomly Used Accounts (minimum number of transactions):",
-                value=5, min_value=1
-            )
+        # Main section for data display and analysis
+        if st.session_state.df is not None:
+            st.subheader("Uploaded GL Data")
+            st.dataframe(st.session_state.df.head())
 
-        if st.button("Run High-Risk Test"):
-            perform_high_risk_test()
-            visualize_high_risk_entries()
+            if check_required_columns(st.session_state.df):
+                st.session_state.processed_df = convert_data_types(st.session_state.df.copy())
 
-    # Export Reports
-    st.header("5. Export Reports")
-    if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
-        if st.button("Export PDF Report"):
-            pdf_output = export_pdf_report()
-            st.download_button(
-                label="Download PDF Report",
-                data=pdf_output,
-                file_name="audit_report.pdf",
-                mime="application/pdf",
-            )
+                st.subheader("Analysis Options")
+                if st.button("Run Completeness Check"):
+                    perform_completeness_check()
 
-        if st.button("Export Excel Report"):
-            excel_output = export_excel_report()
-            st.download_button(
-                label="Download Excel Report",
-                data=excel_output,
-                file_name="flagged_entries.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+                if st.button("Detect Seldomly Used Accounts"):
+                    detect_seldomly_used_accounts()
 
-    # Guide
-    st.sidebar.header("Guide")
-    st.sidebar.markdown("""
-    **Journal Entry Testing Guide**
+                if st.button("Perform Pattern Recognition"):
+                    perform_pattern_recognition()
 
-    The following fields are GL required for testing:
-    - Transaction ID
-    - Date
-    - Debit Amount (Dr)
-    - Credit Amount (Cr)
-    - Account Number
+                if st.button("Run High-Risk Tests"):
+                    perform_high_risk_test()
 
-    The following fields are TB required for testing:
-    - Account Number
-    - Opening Balance
-    - Ending Balance
+                if st.session_state.flagged_entries_by_category:
+                    st.subheader("Export Options")
+                    if st.download_button("Export Flagged Entries to Excel", data=export_excel_report(), file_name="flagged_entries.xlsx"):
+                        st.success("Excel report generated!")
 
-    **Steps:**
-    1. Import a CSV file containing the required fields.
-    2. Map the CSV columns to the required fields.
-    3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
-    4. Run the test to identify high-risk entries.
-    5. Export the results to a CSV file.
-    """)
+                    if st.download_button("Export Report to PDF", data=export_pdf_report(), file_name="audit_report.pdf"):
+                        st.success("PDF report generated!")
 
-    # Preview Data
-    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-        st.header("Preview Data")
-        st.dataframe(st.session_state.processed_df.head(10))
-
-# Check if user is logged in
-if not st.session_state.logged_in:
-    login()
-else:
-    main_app()
+# Run the app
+if __name__ == "__main__":
+    main()
