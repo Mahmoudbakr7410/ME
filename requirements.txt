@@ -14,3 +14,5 @@ openpyxl
 pyxlsb
 dask
 psutil
+pyodbc
+sqlalchemy
