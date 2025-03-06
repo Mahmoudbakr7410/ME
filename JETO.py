@@ -11,6 +11,7 @@ from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
 import csv  # For delimiter detection
+import pyodbc  # For SQL Azure connection
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -146,6 +147,17 @@ optional_fields = [
 ]
 
 all_fields = required_fields + optional_fields
+
+# Function to connect to SQL Azure
+def get_db_connection():
+    server = "mahx.database.windows.net"
+    database = "MAHx"
+    username = "mahmoudbakr7410@gmail.com@mahx"
+    password = "7oda@ELBASHA"
+    driver = '{ODBC Driver 17 for SQL Server}'
+    connection_string = f"DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}"
+    conn = pyodbc.connect(connection_string)
+    return conn
 
 # Function to detect delimiter for txt files
 def detect_delimiter(file):
@@ -543,37 +555,31 @@ def main_app():
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
-    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt"])
-    if uploaded_file is not None:
+    
+    # Fetch data from SQL Azure
+    if st.button("Fetch Data from SQL Azure"):
         try:
-            if uploaded_file.name.endswith('.csv'):
-                st.session_state.df = pd.read_csv(uploaded_file)
-            elif uploaded_file.name.endswith('.parquet'):
-                st.session_state.df = pd.read_parquet(uploaded_file)
-            elif uploaded_file.name.endswith('.txt'):
-                delimiter = detect_delimiter(uploaded_file)
-                st.session_state.df = pd.read_csv(uploaded_file, delimiter=delimiter)
-            st.success("GL Dump file imported successfully!")
+            conn = get_db_connection()
+            query = "SELECT * FROM your_table_name"  # Replace with your actual table name
+            st.session_state.df = pd.read_sql(query, conn)
+            conn.close()
+            st.success("Data fetched successfully from SQL Azure!")
         except Exception as e:
-            st.error(f"Failed to import file: {e}")
-            logging.error(f"Failed to import file: {e}")
+            st.error(f"Failed to fetch data: {e}")
+            logging.error(f"Failed to fetch data: {e}")
 
     # Import Trial Balance
     st.subheader("Import Trial Balance")
-    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt"])
-    if tb_uploaded_file is not None:
+    if st.button("Fetch Trial Balance from SQL Azure"):
         try:
-            if tb_uploaded_file.name.endswith('.csv'):
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
-            elif tb_uploaded_file.name.endswith('.parquet'):
-                st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
-            elif tb_uploaded_file.name.endswith('.txt'):
-                delimiter = detect_delimiter(tb_uploaded_file)
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter=delimiter)
-            st.success("Trial Balance file imported successfully!")
+            conn = get_db_connection()
+            query = "SELECT * FROM your_trial_balance_table_name"  # Replace with your actual table name
+            st.session_state.trial_balance = pd.read_sql(query, conn)
+            conn.close()
+            st.success("Trial Balance data fetched successfully from SQL Azure!")
         except Exception as e:
-            st.error(f"Failed to import trial balance file: {e}")
-            logging.error(f"Failed to import trial balance file: {e}")
+            st.error(f"Failed to fetch trial balance data: {e}")
+            logging.error(f"Failed to fetch trial balance data: {e}")
 
     # Input audited client name and year
     st.session_state.audited_client_name = st.text_input("Enter Audited Client Name:", value=st.session_state.audited_client_name)
