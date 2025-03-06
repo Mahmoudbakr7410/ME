@@ -11,7 +11,6 @@ from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
 import csv  # For delimiter detection
-import pyodbc  # For Azure SQL Database connection
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -470,42 +469,6 @@ def visualize_high_risk_entries():
             fig = px.scatter(nine_pattern_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)", color="Account Number")
             st.plotly_chart(fig)
 
-# Function to upload data to Azure SQL Database
-def upload_to_azure_sql(df):
-    try:
-        # Azure SQL Database connection details
-        SERVER = "mahx.database.windows.net"
-        DATABASE = "MAHx"
-        USERNAME = "mahmoudbakr7410@gmail.com@mahx"
-        PASSWORD = "7oda@ELBASHA"
-        TABLE_NAME = "dbo.GL_Dump"
-
-        # Create connection string
-        conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={SERVER};DATABASE={DATABASE};UID={USERNAME};PWD={PASSWORD}"
-
-        # Connect to Azure SQL Database
-        conn = pyodbc.connect(conn_str)
-        cursor = conn.cursor()
-
-        # Insert data into the table
-        for index, row in df.iterrows():
-            cursor.execute(f"""
-                INSERT INTO {TABLE_NAME} (TransactionID, Date, DebitAmount, CreditAmount, AccountNumber)
-                VALUES (?, ?, ?, ?, ?)
-            """, row['Transaction ID'], row['Date'], row['Debit Amount (Dr)'], row['Credit Amount (Cr)'], row['Account Number'])
-
-        # Commit the transaction
-        conn.commit()
-
-        # Close the connection
-        cursor.close()
-        conn.close()
-
-        st.success("Data uploaded to Azure SQL Database successfully!")
-    except Exception as e:
-        st.error(f"Error uploading data to Azure SQL Database: {e}")
-        logging.error(f"Error uploading data to Azure SQL Database: {e}")
-
 # Authentication
 def login():
     st.markdown(
@@ -716,11 +679,6 @@ def main_app():
                 file_name="flagged_entries.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-
-    # Upload to Azure SQL Database
-    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-        if st.button("Upload to Azure SQL Database"):
-            upload_to_azure_sql(st.session_state.processed_df)
 
     # Guide
     st.sidebar.header("Guide")
