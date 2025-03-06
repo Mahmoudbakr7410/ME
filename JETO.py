@@ -560,7 +560,7 @@ def main_app():
     if st.button("Fetch Data from SQL Azure"):
         try:
             conn = get_db_connection()
-            query = "SELECT * FROM your_table_name"  # Replace with your actual table name
+            query = "SELECT * FROM [dbo].[GL_Dump]"  # Replace with your actual table name
             st.session_state.df = pd.read_sql(query, conn)
             conn.close()
             st.success("Data fetched successfully from SQL Azure!")
