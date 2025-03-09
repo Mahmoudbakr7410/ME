@@ -7,10 +7,12 @@ from io import StringIO, BytesIO
 import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import datetime
-from fpdf import FPDF  # For PDF export
-from sklearn.cluster import KMeans  # For pattern recognition
-from sklearn.preprocessing import StandardScaler  # For scaling data
-import csv  # For delimiter detection
+from fpdf import FPDF
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+import csv
+import dask.dataframe as dd
+from dask.diagnostics import ProgressBar
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
