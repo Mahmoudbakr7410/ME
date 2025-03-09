@@ -3,14 +3,14 @@ import pandas as pd
 import numpy as np
 import logging
 import math
-from io import BytesIO
+from io import StringIO, BytesIO
 import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import datetime
 from fpdf import FPDF  # For PDF export
 from sklearn.cluster import KMeans  # For pattern recognition
 from sklearn.preprocessing import StandardScaler  # For scaling data
-import pyodbc  # For connecting to Azure SQL Database
+import csv  # For delimiter detection
 
 # Set up logging
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -131,23 +131,29 @@ authorized_users = {
     "y.alahmadi@maham.com": "password69"
 }
 
-# Function to connect to Azure SQL Database
-def connect_to_azure_sql():
-    server = "mahx.database.windows.net"
-    database = "MAHx"
-    username = "mahmoudbakr7410@gmail.com@mahx"
-    password = "7oda@ELBASHA"
-    connection_string = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};UID={username};PWD={password}"
-    conn = pyodbc.connect(connection_string)
-    return conn
+# Define required and optional fields
+required_fields = [
+    "Transaction ID", "Date", "Debit Amount (Dr)", "Credit Amount (Cr)", "Account Number"
+]
 
-# Function to retrieve data from Azure SQL Database
-def retrieve_data_from_db():
-    conn = connect_to_azure_sql()
-    query = "SELECT * FROM dbo.Data"  # Retrieve all columns from the table
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
+optional_fields = [
+    "Journal Entry ID", "Posting Date", "Entry Description", "Document Number",
+    "Period/Month", "Year", "Entry Type", "Reversal Indicator", "Account Name",
+    "Account Type", "Cost Center", "Subledger Type", "Subledger ID", "Currency", "Local Currency Amount",
+    "Exchange Rate", "Net Amount", "Created By", "Approved By", "Posting User", "Approval Date",
+    "Journal Source", "Manual Entry Flag", "High-Risk Account Flag", "Suspense Account Flag",
+    "Offsetting Entry Indicator", "Period-End Flag", "Weekend/Holiday Flag", "Round Number Flag"
+]
+
+all_fields = required_fields + optional_fields
+
+# Function to detect delimiter for txt files
+def detect_delimiter(file):
+    sample = file.read(1024).decode('utf-8')
+    file.seek(0)
+    sniffer = csv.Sniffer()
+    delimiter = sniffer.sniff(sample).delimiter
+    return delimiter
 
 # Function to convert data types
 def convert_data_types(df):
@@ -169,8 +175,149 @@ def is_99999(value):
     except (ValueError, TypeError):
         return False
 
+# Function to perform completeness check
+def perform_completeness_check():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No GL data to test. Please import a file first.")
+        return
+    if st.session_state.trial_balance is None or st.session_state.trial_balance.empty:
+        st.warning("No trial balance data to test. Please import a trial balance file first.")
+        return
+
+    try:
+        gl_summary = st.session_state.processed_df.groupby("Account Number").agg(
+            Total_Debits=("Debit Amount (Dr)", "sum"),
+            Total_Credits=("Credit Amount (Cr)", "sum")
+        ).reset_index()
+        merged_df = pd.merge(
+            st.session_state.trial_balance,
+            gl_summary,
+            on="Account Number",
+            how="left"
+        )
+        merged_df["Total_Debits"] = merged_df["Total_Debits"].fillna(0)
+        merged_df["Total_Credits"] = merged_df["Total_Credits"].fillna(0)
+        merged_df["Expected_Ending_Balance"] = (
+            merged_df["Opening Balance"] + merged_df["Total_Debits"] - merged_df["Total_Credits"]
+        )
+        merged_df["Discrepancy"] = (
+            merged_df["Expected_Ending_Balance"] - merged_df["Ending Balance"]
+        )
+        st.session_state.completeness_check_results = merged_df
+        max_discrepancy = merged_df["Discrepancy"].abs().max()
+        if max_discrepancy <= 5:
+            st.session_state.completeness_check_passed = True
+            st.success("Completeness check passed! Maximum discrepancy is within the allowed tolerance of 5.")
+        else:
+            st.session_state.completeness_check_passed = False
+            st.warning(f"Completeness check failed! Maximum discrepancy ({max_discrepancy}) exceeds the allowed tolerance of 5.")
+        st.dataframe(merged_df)
+        discrepancies = merged_df[abs(merged_df["Discrepancy"]) > 0.01]
+        if not discrepancies.empty:
+            st.warning(f"Found {len(discrepancies)} accounts with discrepancies.")
+            st.dataframe(discrepancies)
+        else:
+            st.success("No discrepancies found. All accounts are complete.")
+    except Exception as e:
+        st.error(f"Error during completeness check: {e}")
+        logging.error(f"Error during completeness check: {e}")
+
+# Function to detect seldomly used accounts
+def detect_seldomly_used_accounts():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to analyze. Please import a file first.")
+        return
+
+    try:
+        account_frequency = st.session_state.processed_df["Account Number"].value_counts().reset_index()
+        account_frequency.columns = ["Account Number", "Transaction Count"]
+        seldomly_used_accounts = account_frequency[account_frequency["Transaction Count"] < st.session_state.seldomly_used_accounts_threshold]
+        st.session_state.seldomly_used_accounts = seldomly_used_accounts
+        st.subheader("Seldomly Used Accounts")
+        st.write(f"Found {len(seldomly_used_accounts)} accounts with fewer than {st.session_state.seldomly_used_accounts_threshold} transactions.")
+        st.dataframe(seldomly_used_accounts)
+        st.subheader("Conclusion")
+        if len(seldomly_used_accounts) > 0:
+            st.warning(f"{len(seldomly_used_accounts)} accounts are seldomly used. Review these accounts for potential risks.")
+        else:
+            st.success("No seldomly used accounts found.")
+    except Exception as e:
+        st.error(f"Error during seldomly used accounts detection: {e}")
+        logging.error(f"Error during seldomly used accounts detection: {e}")
+
+# Function to perform data mining and pattern recognition
+def perform_pattern_recognition():
+    if st.session_state.processed_df is None or st.session_state.processed_df.empty:
+        st.warning("No data to analyze. Please import a file first.")
+        return
+
+    try:
+        numeric_cols = st.session_state.processed_df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) == 0:
+            st.warning("No numeric columns found for pattern recognition.")
+            return
+        scaler = StandardScaler()
+        scaled_data = scaler.fit_transform(st.session_state.processed_df[numeric_cols])
+        kmeans = KMeans(n_clusters=3)
+        clusters = kmeans.fit_predict(scaled_data)
+        st.session_state.processed_df["Cluster"] = clusters
+        cluster_summary = st.session_state.processed_df.groupby("Cluster").agg(
+            Count=("Cluster", "size"),
+            Avg_Debit=("Debit Amount (Dr)", "mean"),
+            Avg_Credit=("Credit Amount (Cr)", "mean")
+        ).reset_index()
+        st.session_state.pattern_recognition_results = cluster_summary
+        st.subheader("Pattern Recognition Results")
+        st.dataframe(cluster_summary)
+        st.subheader("Conclusion")
+        if len(cluster_summary) > 1:
+            st.success("Pattern recognition identified distinct groups of transactions. Review the clusters for insights.")
+        else:
+            st.warning("No significant patterns were found in the data.")
+    except Exception as e:
+        st.error(f"Error during pattern recognition: {e}")
+        logging.error(f"Error during pattern recognition: {e}")
+
+# Function to export PDF report
+def export_pdf_report():
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Maham for Professional Services", ln=True, align="C")
+    pdf.cell(200, 10, txt=f"Audited Client: {st.session_state.audited_client_name}", ln=True, align="L")
+    pdf.cell(200, 10, txt=f"Year Audited: {st.session_state.year_audited}", ln=True, align="L")
+    pdf.cell(200, 10, txt=f"Report Generated On: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="L")
+    pdf.cell(200, 10, txt=f"Generated By: {st.session_state.logged_in_user}", ln=True, align="L")
+    pdf.cell(200, 10, txt="Completeness Check Conclusion:", ln=True, align="L")
+    if st.session_state.completeness_check_passed:
+        pdf.cell(200, 10, txt="Completeness check passed. Maximum discrepancy is within the allowed tolerance of 5.", ln=True, align="L")
+    else:
+        max_discrepancy = st.session_state.completeness_check_results["Discrepancy"].abs().max()
+        pdf.cell(200, 10, txt=f"Completeness check failed. Maximum discrepancy ({max_discrepancy}) exceeds the allowed tolerance of 5.", ln=True, align="L")
+    pdf.cell(200, 10, txt="Flagged Entries by Category:", ln=True, align="L")
+    pdf.set_font("Arial", size=10)
+    for category, entries in st.session_state.flagged_entries_by_category.items():
+        pdf.cell(200, 10, txt=f"Category: {category}", ln=True, align="L")
+        for index, row in entries.iterrows():
+            pdf.cell(200, 10, txt=f"Transaction ID: {row['Transaction ID']}, Date: {row['Date']}, Debit: {row['Debit Amount (Dr)']}, Credit: {row['Credit Amount (Cr)']}", ln=True, align="L")
+    pdf_output = pdf.output(dest="S").encode("latin1")
+    return pdf_output
+
+# Function to export Excel report
+def export_excel_report():
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        for category, entries in st.session_state.flagged_entries_by_category.items():
+            entries.to_excel(writer, sheet_name=category, index=False)
+    output.seek(0)
+    return output
+
 # Function to perform high-risk testing
 def perform_high_risk_test():
+    if not st.session_state.completeness_check_passed:
+        st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
+        return
+
     if st.session_state.processed_df is None or st.session_state.processed_df.empty:
         st.warning("No data to test. Please import a file first.")
         return
@@ -322,178 +469,8 @@ def visualize_high_risk_entries():
             fig = px.scatter(nine_pattern_entries, x="Debit Amount (Dr)", y="Credit Amount (Cr)", color="Account Number")
             st.plotly_chart(fig)
 
-# Function to export PDF report
-def export_pdf_report():
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Maham for Professional Services", ln=True, align="C")
-    pdf.cell(200, 10, txt=f"Audited Client: {st.session_state.audited_client_name}", ln=True, align="L")
-    pdf.cell(200, 10, txt=f"Year Audited: {st.session_state.year_audited}", ln=True, align="L")
-    pdf.cell(200, 10, txt=f"Report Generated On: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="L")
-    pdf.cell(200, 10, txt=f"Generated By: {st.session_state.logged_in_user}", ln=True, align="L")
-    pdf.cell(200, 10, txt="Flagged Entries by Category:", ln=True, align="L")
-    pdf.set_font("Arial", size=10)
-    for category, entries in st.session_state.flagged_entries_by_category.items():
-        pdf.cell(200, 10, txt=f"Category: {category}", ln=True, align="L")
-        for index, row in entries.iterrows():
-            pdf.cell(200, 10, txt=f"Transaction ID: {row['Transaction ID']}, Date: {row['Date']}, Debit: {row['Debit Amount (Dr)']}, Credit: {row['Credit Amount (Cr)']}", ln=True, align="L")
-    pdf_output = pdf.output(dest="S").encode("latin1")
-    return pdf_output
-
-# Function to export Excel report
-def export_excel_report():
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        for category, entries in st.session_state.flagged_entries_by_category.items():
-            entries.to_excel(writer, sheet_name=category, index=False)
-    output.seek(0)
-    return output
-
-# Streamlit UI
-def main_app():
-    st.title("MAHAM DATA DEEP ANALYZER DEMO")
-
-    # Data Retrieval
-    st.header("1. Retrieve Data from Database")
-    if st.button("Retrieve Data"):
-        try:
-            st.session_state.df = retrieve_data_from_db()
-            st.session_state.processed_df = convert_data_types(st.session_state.df)
-            st.success("Data retrieved successfully!")
-        except Exception as e:
-            st.error(f"Failed to retrieve data: {e}")
-            logging.error(f"Failed to retrieve data: {e}")
-
-    # Input audited client name and year
-    st.session_state.audited_client_name = st.text_input("Enter Audited Client Name:", value=st.session_state.audited_client_name)
-    st.session_state.year_audited = st.number_input("Enter Year Audited:", value=st.session_state.year_audited)
-
-    if st.session_state.df is not None:
-        st.subheader("Map Columns")
-        st.session_state.column_mapping = {}
-        for field in all_fields:
-            st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
-        
-        if st.button("Confirm Mapping"):
-            missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
-            if missing_fields:
-                st.error(f"Missing required fields: {missing_fields}")
-            else:
-                st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
-                st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
-                st.success("Columns mapped successfully!")
-
-    # Data Mining and Pattern Recognition
-    st.header("2. Data Mining and Pattern Recognition")
-    if st.button("Run Pattern Recognition"):
-        perform_pattern_recognition()
-
-    # High-Risk Criteria & Testing
-    st.header("3. High-Risk Criteria & Testing")
-    st.session_state.public_holidays_var = st.checkbox("Public Holidays")
-    st.session_state.rounded_var = st.checkbox("Rounded Numbers")
-    st.session_state.unusual_users_var = st.checkbox("Unusual Users")
-    st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
-    st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
-    st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
-    st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
-    st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
-
-    if st.session_state.public_holidays_var:
-        public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
-        st.session_state.public_holidays = []
-        for date in public_holidays_input:
-            if date.strip():
-                try:
-                    parsed_date = pd.to_datetime(date.strip(), format="%Y-%m-%d")
-                    st.session_state.public_holidays.append(parsed_date)
-                except ValueError:
-                    st.error(f"Invalid date format: {date.strip()}. Please use the format YYYY-MM-DD.")
-
-    if st.session_state.rounded_var:
-        st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
-
-    if st.session_state.unusual_users_var:
-        st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
-        st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
-
-    if st.session_state.post_closing_var:
-        st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
-
-    if st.session_state.auth_threshold_var:
-        st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
-
-    if st.session_state.keywords_var:
-        st.session_state.suspicious_keywords = st.text_area(
-            "Enter Suspicious Keywords (comma-separated):",
-            "miscellaneous, adjustment, correction, other, rounding"
-        ).strip().split(",")
-        st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
-
-    if st.session_state.seldomly_used_accounts_var:
-        st.session_state.seldomly_used_accounts_threshold = st.number_input(
-            "Enter Threshold for Seldomly Used Accounts (minimum number of transactions):",
-            value=5, min_value=1
-        )
-
-    if st.button("Run High-Risk Test"):
-        perform_high_risk_test()
-        visualize_high_risk_entries()
-
-    # Export Reports
-    st.header("4. Export Reports")
-    if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
-        if st.button("Export PDF Report"):
-            pdf_output = export_pdf_report()
-            st.download_button(
-                label="Download PDF Report",
-                data=pdf_output,
-                file_name="audit_report.pdf",
-                mime="application/pdf",
-            )
-
-        if st.button("Export Excel Report"):
-            excel_output = export_excel_report()
-            st.download_button(
-                label="Download Excel Report",
-                data=excel_output,
-                file_name="flagged_entries.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-    # Guide
-    st.sidebar.header("Guide")
-    st.sidebar.markdown("""
-    **Journal Entry Testing Guide**
-
-    The following fields are GL required for testing:
-    - Transaction ID
-    - Date
-    - Debit Amount (Dr)
-    - Credit Amount (Cr)
-    - Account Number
-
-    The following fields are TB required for testing:
-    - Account Number
-    - Opening Balance
-    - Ending Balance
-
-    **Steps:**
-    1. Import a CSV file containing the required fields.
-    2. Map the CSV columns to the required fields.
-    3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
-    4. Run the test to identify high-risk entries.
-    5. Export the results to a CSV file.
-    """)
-
-    # Preview Data
-    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-        st.header("Preview Data")
-        st.dataframe(st.session_state.processed_df.head(10))
-
-# Check if user is logged in
-if not st.session_state.get("logged_in", False):
+# Authentication
+def login():
     st.markdown(
         """
         <style>
@@ -551,11 +528,190 @@ if not st.session_state.get("logged_in", False):
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        # For now, allow any username/password to log in
-        st.session_state.logged_in = True
-        st.session_state.logged_in_user = username
-        st.success("Logged in successfully!")
+        if username in authorized_users and authorized_users[username] == password:
+            st.session_state.logged_in = True
+            st.session_state.logged_in_user = username
+            st.success("Logged in successfully!")
+        else:
+            st.error("Invalid username or password")
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>", unsafe_allow_html=True)
+
+# Streamlit UI
+def main_app():
+    st.title("MAHAM DATA DEEP ANALYZER DEMO")
+
+    # Data Import & Processing
+    st.header("1. Data Import & Processing")
+    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt"])
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                st.session_state.df = pd.read_csv(uploaded_file)
+            elif uploaded_file.name.endswith('.parquet'):
+                st.session_state.df = pd.read_parquet(uploaded_file)
+            elif uploaded_file.name.endswith('.txt'):
+                delimiter = detect_delimiter(uploaded_file)
+                st.session_state.df = pd.read_csv(uploaded_file, delimiter=delimiter)
+            st.success("GL Dump file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import file: {e}")
+            logging.error(f"Failed to import file: {e}")
+
+    # Import Trial Balance
+    st.subheader("Import Trial Balance")
+    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt"])
+    if tb_uploaded_file is not None:
+        try:
+            if tb_uploaded_file.name.endswith('.csv'):
+                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
+            elif tb_uploaded_file.name.endswith('.parquet'):
+                st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
+            elif tb_uploaded_file.name.endswith('.txt'):
+                delimiter = detect_delimiter(tb_uploaded_file)
+                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter=delimiter)
+            st.success("Trial Balance file imported successfully!")
+        except Exception as e:
+            st.error(f"Failed to import trial balance file: {e}")
+            logging.error(f"Failed to import trial balance file: {e}")
+
+    # Input audited client name and year
+    st.session_state.audited_client_name = st.text_input("Enter Audited Client Name:", value=st.session_state.audited_client_name)
+    st.session_state.year_audited = st.number_input("Enter Year Audited:", value=st.session_state.year_audited)
+
+    if st.session_state.df is not None:
+        st.subheader("Map Columns")
+        st.session_state.column_mapping = {}
+        for field in all_fields:
+            st.session_state.column_mapping[field] = st.selectbox(f"Map '{field}' to:", [""] + st.session_state.df.columns.tolist())
+        
+        if st.button("Confirm Mapping"):
+            missing_fields = [field for field in required_fields if st.session_state.column_mapping[field] == ""]
+            if missing_fields:
+                st.error(f"Missing required fields: {missing_fields}")
+            else:
+                st.session_state.processed_df = st.session_state.df.rename(columns={v: k for k, v in st.session_state.column_mapping.items() if v != ""})
+                st.session_state.processed_df = convert_data_types(st.session_state.processed_df)
+                st.success("Columns mapped successfully!")
+
+    # Completeness Check
+    st.header("2. Completeness Check")
+    if st.button("Run Completeness Check"):
+        perform_completeness_check()
+
+    # Data Mining and Pattern Recognition
+    st.header("3. Data Mining and Pattern Recognition")
+    if st.button("Run Pattern Recognition"):
+        perform_pattern_recognition()
+
+    # High-Risk Criteria & Testing
+    st.header("4. High-Risk Criteria & Testing")
+    if not st.session_state.completeness_check_passed:
+        st.warning("High-risk tests are disabled until the completeness check passes with a maximum discrepancy of 5.")
+    else:
+        st.session_state.public_holidays_var = st.checkbox("Public Holidays")
+        st.session_state.rounded_var = st.checkbox("Rounded Numbers")
+        st.session_state.unusual_users_var = st.checkbox("Unusual Users")
+        st.session_state.post_closing_var = st.checkbox("Post-Closing Entries")
+        st.session_state.auth_threshold_var = st.checkbox("Entries Just Below Authorization Threshold")
+        st.session_state.nine_pattern_var = st.checkbox("99999 Pattern")
+        st.session_state.keywords_var = st.checkbox("Suspicious Keywords")
+        st.session_state.seldomly_used_accounts_var = st.checkbox("Seldomly Used Accounts")
+
+        if st.session_state.public_holidays_var:
+            public_holidays_input = st.text_area("Enter Public Holidays (YYYY-MM-DD):", "Enter one date per line, e.g.:\n2023-01-01\n2023-12-25").strip().split("\n")
+            st.session_state.public_holidays = []
+            for date in public_holidays_input:
+                if date.strip():
+                    try:
+                        parsed_date = pd.to_datetime(date.strip(), format="%Y-%m-%d")
+                        st.session_state.public_holidays.append(parsed_date)
+                    except ValueError:
+                        st.error(f"Invalid date format: {date.strip()}. Please use the format YYYY-MM-DD.")
+
+        if st.session_state.rounded_var:
+            st.session_state.rounded_threshold = st.number_input("Enter Threshold for Rounded Numbers:", value=100.0)
+
+        if st.session_state.unusual_users_var:
+            st.session_state.authorized_users = st.text_input("Enter Authorized Users (comma-separated):", "").strip().split(",")
+            st.session_state.authorized_users = [user.strip() for user in st.session_state.authorized_users if user.strip()]
+
+        if st.session_state.post_closing_var:
+            st.session_state.closing_date = st.date_input("Enter Closing Date of the Books (YYYY-MM-DD):")
+
+        if st.session_state.auth_threshold_var:
+            st.session_state.auth_threshold = st.number_input("Enter Authorization Threshold Amount:", value=10000.0)
+
+        if st.session_state.keywords_var:
+            st.session_state.suspicious_keywords = st.text_area(
+                "Enter Suspicious Keywords (comma-separated):",
+                "miscellaneous, adjustment, correction, other, rounding"
+            ).strip().split(",")
+            st.session_state.suspicious_keywords = [keyword.strip().lower() for keyword in st.session_state.suspicious_keywords if keyword.strip()]
+
+        if st.session_state.seldomly_used_accounts_var:
+            st.session_state.seldomly_used_accounts_threshold = st.number_input(
+                "Enter Threshold for Seldomly Used Accounts (minimum number of transactions):",
+                value=5, min_value=1
+            )
+
+        if st.button("Run High-Risk Test"):
+            perform_high_risk_test()
+            visualize_high_risk_entries()
+
+    # Export Reports
+    st.header("5. Export Reports")
+    if st.session_state.high_risk_entries is not None and not st.session_state.high_risk_entries.empty:
+        if st.button("Export PDF Report"):
+            pdf_output = export_pdf_report()
+            st.download_button(
+                label="Download PDF Report",
+                data=pdf_output,
+                file_name="audit_report.pdf",
+                mime="application/pdf",
+            )
+
+        if st.button("Export Excel Report"):
+            excel_output = export_excel_report()
+            st.download_button(
+                label="Download Excel Report",
+                data=excel_output,
+                file_name="flagged_entries.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+    # Guide
+    st.sidebar.header("Guide")
+    st.sidebar.markdown("""
+    **Journal Entry Testing Guide**
+
+    The following fields are GL required for testing:
+    - Transaction ID
+    - Date
+    - Debit Amount (Dr)
+    - Credit Amount (Cr)
+    - Account Number
+
+    The following fields are TB required for testing:
+    - Account Number
+    - Opening Balance
+    - Ending Balance
+
+    **Steps:**
+    1. Import a CSV file containing the required fields.
+    2. Map the CSV columns to the required fields.
+    3. Set high-risk criteria (e.g., public holidays, rounded numbers, unusual users, post-closing entries).
+    4. Run the test to identify high-risk entries.
+    5. Export the results to a CSV file.
+    """)
+
+    # Preview Data
+    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
+        st.header("Preview Data")
+        st.dataframe(st.session_state.processed_df.head(10))
+
+# Check if user is logged in
+if not st.session_state.logged_in:
+    login()
 else:
     main_app()
