@@ -150,12 +150,51 @@ optional_fields = [
 all_fields = required_fields + optional_fields
 
 # Function to detect delimiter for txt files
-def detect_delimiter(file):
-    sample = file.read(1024).decode('utf-8')
-    file.seek(0)
-    sniffer = csv.Sniffer()
-    delimiter = sniffer.sniff(sample).delimiter
-    return delimiter
+def detect_delimiter(file, encoding='utf-8'):
+    try:
+        sample = file.read(1024).decode(encoding)
+        file.seek(0)
+        sniffer = csv.Sniffer()
+        delimiter = sniffer.sniff(sample).delimiter
+        return delimiter
+    except UnicodeDecodeError:
+        # If UTF-8 fails, try other common encodings
+        encodings_to_try = ['latin-1', 'ISO-8859-1', 'Windows-1252']
+        for enc in encodings_to_try:
+            try:
+                file.seek(0)
+                sample = file.read(1024).decode(enc)
+                file.seek(0)
+                sniffer = csv.Sniffer()
+                delimiter = sniffer.sniff(sample).delimiter
+                return delimiter
+            except UnicodeDecodeError:
+                continue
+        raise ValueError("Unable to detect file encoding.")
+
+# Function to read the file with the correct encoding
+def read_file_with_encoding(uploaded_file, encoding='utf-8'):
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            return pd.read_csv(uploaded_file, encoding=encoding)
+        elif uploaded_file.name.endswith('.parquet'):
+            return pd.read_parquet(uploaded_file)
+        elif uploaded_file.name.endswith('.txt'):
+            delimiter = detect_delimiter(uploaded_file, encoding)
+            return pd.read_csv(uploaded_file, delimiter=delimiter, encoding=encoding)
+    except UnicodeDecodeError:
+        # If the specified encoding fails, try other common encodings
+        encodings_to_try = ['latin-1', 'ISO-8859-1', 'Windows-1252']
+        for enc in encodings_to_try:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    return pd.read_csv(uploaded_file, encoding=enc)
+                elif uploaded_file.name.endswith('.txt'):
+                    delimiter = detect_delimiter(uploaded_file, enc)
+                    return pd.read_csv(uploaded_file, delimiter=delimiter, encoding=enc)
+            except UnicodeDecodeError:
+                continue
+        raise ValueError("Unable to read file with any supported encoding.")
 
 # Function to convert data types
 def convert_data_types(df):
@@ -169,11 +208,11 @@ def convert_data_types(df):
             df[field] = pd.to_datetime(df[field], errors="coerce")
     return df
 
-# Function to check for 99999 pattern
-def is_99999(value):
+# Function to check for 9999 pattern
+def is_9999(value):
     try:
         value = float(value)
-        return abs(value - round(value, 0)) >= 0.999 and abs(value - round(value, 0)) < 1.0
+        return abs(value - round(value, 0)) >= 0.9999 and abs(value - round(value, 0)) < 1.0
     except (ValueError, TypeError):
         return False
 
@@ -400,8 +439,8 @@ def perform_high_risk_test():
 
         if st.session_state.nine_pattern_var:
             nine_pattern_entries = st.session_state.processed_df[
-                st.session_state.processed_df["Debit Amount (Dr)"].apply(is_99999) |
-                st.session_state.processed_df["Credit Amount (Cr)"].apply(is_99999)
+                st.session_state.processed_df["Debit Amount (Dr)"].apply(is_9999) |
+                st.session_state.processed_df["Credit Amount (Cr)"].apply(is_9999)
             ]
             st.session_state.high_risk_entries = pd.concat([st.session_state.high_risk_entries, nine_pattern_entries])
             st.session_state.flagged_entries_by_category["99999 Pattern"] = nine_pattern_entries
@@ -548,13 +587,7 @@ def main_app():
     uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt"])
     if uploaded_file is not None:
         try:
-            if uploaded_file.name.endswith('.csv'):
-                st.session_state.df = pd.read_csv(uploaded_file)
-            elif uploaded_file.name.endswith('.parquet'):
-                st.session_state.df = pd.read_parquet(uploaded_file)
-            elif uploaded_file.name.endswith('.txt'):
-                delimiter = detect_delimiter(uploaded_file)
-                st.session_state.df = pd.read_csv(uploaded_file, delimiter=delimiter)
+            st.session_state.df = read_file_with_encoding(uploaded_file)
             st.success("GL Dump file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import file: {e}")
@@ -565,13 +598,7 @@ def main_app():
     tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt"])
     if tb_uploaded_file is not None:
         try:
-            if tb_uploaded_file.name.endswith('.csv'):
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file)
-            elif tb_uploaded_file.name.endswith('.parquet'):
-                st.session_state.trial_balance = pd.read_parquet(tb_uploaded_file)
-            elif tb_uploaded_file.name.endswith('.txt'):
-                delimiter = detect_delimiter(tb_uploaded_file)
-                st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter=delimiter)
+            st.session_state.trial_balance = read_file_with_encoding(tb_uploaded_file)
             st.success("Trial Balance file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import trial balance file: {e}")
