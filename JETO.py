@@ -545,7 +545,7 @@ def main_app():
 
     # Data Import & Processing
     st.header("1. Data Import & Processing")
-    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt"])
+    uploaded_file = st.file_uploader("Import GL Dump File", type=["csv", "parquet", "txt", "xlsx"])
     if uploaded_file is not None:
         try:
             if uploaded_file.name.endswith('.csv'):
@@ -555,6 +555,8 @@ def main_app():
             elif uploaded_file.name.endswith('.txt'):
                 delimiter = detect_delimiter(uploaded_file)
                 st.session_state.df = pd.read_csv(uploaded_file, delimiter=delimiter)
+            elif uploaded_file.name.endswith('.xlsx'):
+                st.session_state.df = pd.read_excel(uploaded_file)
             st.success("GL Dump file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import file: {e}")
@@ -562,7 +564,7 @@ def main_app():
 
     # Import Trial Balance
     st.subheader("Import Trial Balance")
-    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt"])
+    tb_uploaded_file = st.file_uploader("Import Trial Balance File", type=["csv", "parquet", "txt", "xlsx"])
     if tb_uploaded_file is not None:
         try:
             if tb_uploaded_file.name.endswith('.csv'):
@@ -572,6 +574,8 @@ def main_app():
             elif tb_uploaded_file.name.endswith('.txt'):
                 delimiter = detect_delimiter(tb_uploaded_file)
                 st.session_state.trial_balance = pd.read_csv(tb_uploaded_file, delimiter=delimiter)
+            elif tb_uploaded_file.name.endswith('.xlsx'):
+                st.session_state.trial_balance = pd.read_excel(tb_uploaded_file)
             st.success("Trial Balance file imported successfully!")
         except Exception as e:
             st.error(f"Failed to import trial balance file: {e}")
