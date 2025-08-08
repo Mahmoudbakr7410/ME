@@ -537,7 +537,7 @@ def login():
         else:
             st.error("Invalid username or password")
     st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("<div class='footer'>Developed by Innovation and Transformation Team: Mahmoud Elansary and Sabeeh Uddin</div>", unsafe_allow_html=True)
+    st.markdown("<div class='footer'>Developed by Mahmoud Elansary </div>", unsafe_allow_html=True)
 
 # Streamlit UI
 def main_app():
@@ -721,3 +721,4 @@ if not st.session_state.logged_in:
     login()
 else:
     main_app()
+
